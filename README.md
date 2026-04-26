@@ -109,9 +109,31 @@ Current dependency lane:
 - `nx ~> 0.9`
 - `exla ~> 0.9`
 
+Exact resolved dependency versions for this host (`mix.lock`):
+
+- `bumblebee 0.6.3`
+- `axon 0.7.0`
+- `nx 0.10.0`
+- `exla 0.10.0`
+- `xla 0.9.1`
+
+`qwen_deps_blocked` outcome on this host:
+
+- `bumblebee 0.6.3` does not expose `Bumblebee.Text.Qwen`, and no compatible
+  Qwen model module mapping is available for this dependency lane.
+- Qwen production profile remains explicitly `:pending` until dependency support
+  is verified.
+
 That stack uses the CUDA12 EXLA target on this host. A newer CUDA13 lane is
 available for newer Nx/EXLA versions, but current Bumblebee constraints keep
 this project on CUDA12 until the dependency set can be upgraded together.
+
+The dependency gate also applies to profile selection:
+
+- do not pass `qwen_coordinator` through `load_profile/1` when status is
+  `:pending`
+- do not route on Qwen model vectors until dedicated Qwen compatibility checks
+  pass
 
 ## GPU Setup
 

@@ -97,6 +97,19 @@ is true:
   compatible Bumblebee module without parameter-shape or tokenizer issues.
 - This repository adds a maintained Qwen implementation and parameter mapping.
 
+### `qwen_deps_blocked` outcome (host snapshot)
+
+Current resolved versions used for this blocker decision:
+
+- `bumblebee 0.6.3`
+- `axon 0.7.0`
+- `nx 0.10.0`
+- `exla 0.10.0`
+
+Outcome: `qwen_deps_blocked` remains active on this host until either
+`Bumblebee.Text.Qwen` is present or a supported mapping is proven for a Qwen
+model repository.
+
 Do not merge a profile that aliases Qwen to another architecture unless the
 full validation matrix below passes on the target model.
 
