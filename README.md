@@ -1,7 +1,7 @@
 # TrinityCoordinator
 
 <p align="center">
-  <img src="assets/trinity_coordinator.svg" alt="TRINITY Coordinator" width="200" />
+  <img src="https://raw.githubusercontent.com/nshkrdotcom/trinity_coordinator/main/assets/trinity_coordinator.svg" alt="TRINITY Coordinator" width="200" />
 </p>
 
 <p align="center">
