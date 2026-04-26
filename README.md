@@ -11,15 +11,6 @@
   <a href="https://github.com/nshkrdotcom/trinity_coordinator">
     <img alt="GitHub" src="https://img.shields.io/badge/github-nshkrdotcom%2Ftrinity__coordinator-111827?style=for-the-badge&logo=github" />
   </a>
-  <a href="https://hex.pm/packages/trinity_coordinator">
-    <img alt="Hex" src="https://img.shields.io/hexpm/v/trinity_coordinator?style=for-the-badge&color=6366f1" />
-  </a>
-  <a href="https://hexdocs.pm/trinity_coordinator">
-    <img alt="HexDocs" src="https://img.shields.io/badge/docs-hexdocs-0284c7?style=for-the-badge" />
-  </a>
-  <a href="https://github.com/nshkrdotcom/trinity_coordinator/actions/workflows/ci.yml">
-    <img alt="CI" src="https://img.shields.io/github/actions/workflow/status/nshkrdotcom/trinity_coordinator/ci.yml?style=for-the-badge&logo=github-actions&logoColor=white&label=CI" />
-  </a>
 </p>
 
 TRINITY is a compact multi-agent routing loop implemented in Elixir. This project
