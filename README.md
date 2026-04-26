@@ -1,8 +1,6 @@
 # TrinityCoordinator
 
-<p align="center">
-  <img src="assets/trinity_coordinator.svg" alt="TRINITY Coordinator" width="200" />
-</p>
+![TRINITY Coordinator](assets/trinity_coordinator.svg)
 
 <p align="center">
   <a href="https://opensource.org/licenses/MIT">
