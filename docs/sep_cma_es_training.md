@@ -77,7 +77,14 @@ evaluator = fn candidate_model_state, candidate_metadata ->
     candidate_metadata,
     tasks: task_batch,
     slm_context: {model_info, tokenizer},
-    provider_pool: provider_pool,
+    run_opts: [
+      provider_enabled: true,
+      provider_budget_usd: 1.00,
+      provider_credentials: %{openai_api_key: "<api key>"},
+      orchestrator_opts: [
+        agent_pool_opts: [openai_api_key: "<api key>"]
+      ]
+    ],
     reward_fn: reward_fn
   )
 end
@@ -120,22 +127,22 @@ must produce identical vector ordering and metadata.
 Maintain this checklist in the implementation PR and revise it whenever the
 design changes.
 
-- [ ] Red: add tests for deterministic flatten/unflatten round trips.
-- [ ] Green: implement `SepCMAES.Codec` without changing route behavior.
-- [ ] Refactor: simplify codec metadata and document ordering guarantees.
-- [ ] Red: add tests for deterministic candidate sampling with a fixed seed.
-- [ ] Green: implement candidate sampling from a diagonal distribution.
-- [ ] Red: add tests for rank/recombine behavior with synthetic rewards.
-- [ ] Green: implement recombination and best-candidate tracking.
-- [ ] Red: add tests for replication aggregation and terminal reward handling.
-- [ ] Green: implement `Evaluator` boundary and reward normalization.
-- [ ] Red: add a small real integration test using the tiny SLM, real router
+- [x] Red: add tests for deterministic flatten/unflatten round trips.
+- [x] Green: implement `SepCMAES.Codec` without changing route behavior.
+- [x] Refactor: simplify codec metadata and document ordering guarantees.
+- [x] Red: add tests for deterministic candidate sampling with a fixed seed.
+- [x] Green: implement candidate sampling from a diagonal distribution.
+- [x] Red: add tests for rank/recombine behavior with synthetic rewards.
+- [x] Green: implement recombination and best-candidate tracking.
+- [x] Red: add tests for replication aggregation and terminal reward handling.
+- [x] Green: implement `Evaluator` boundary and reward normalization.
+- [x] Red: add a small real integration test using the tiny SLM, real router
       forward pass, and a deterministic local reward function.
-- [ ] Green: run at least one generation end to end with real `Axon`/`Nx` model
+- [x] Green: run at least one generation end to end with real `Axon`/`Nx` model
       states.
-- [ ] Refactor: isolate expensive provider-backed evaluation behind explicit
-      tags and credentials.
-- [ ] Update README and this guide with any changed API or command names.
+- [x] Refactor: isolate expensive provider-backed evaluation behind explicit
+      provider mode and budgeted credentials.
+- [x] Update README and this guide with any changed API or command names.
 
 No core training tests should use fake model states or fake tensor operations.
 It is acceptable to use deterministic local reward functions while testing the
@@ -221,6 +228,15 @@ Quality gate:
 TRINITY_ENABLE_PROVIDER_TESTS=1 \
 TRINITY_PROVIDER_BUDGET_USD=1.00 \
 XLA_TARGET=cuda12 mix test --only provider_training --trace
+```
+The `provider_training` suite uses explicit run options:
+
+```elixir
+run_opts: [
+  provider_enabled: true,
+  provider_budget_usd: 1.00,
+  provider_credentials: %{openai_api_key: key}
+]
 ```
 
 ## Trace Requirements

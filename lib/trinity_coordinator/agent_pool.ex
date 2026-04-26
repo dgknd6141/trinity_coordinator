@@ -2,10 +2,11 @@ defmodule TrinityCoordinator.AgentPool do
   @moduledoc """
   Provider dispatch for selected coordinator agents.
 
-  The orchestrator depends on this module for real LLM calls.
+  Agents are selected via a configurable pool of provider specs. Existing tests and
+  callers that still pass `:agents` continue to work as a compatibility path.
   """
 
-  @agents %{
+  @legacy_agents %{
     0 => %{provider: :openai, model: "gpt-4o-mini"},
     1 => %{provider: :openai, model: "gpt-4o-mini"},
     2 => %{provider: :openai, model: "gpt-4o-mini"},
@@ -15,7 +16,8 @@ defmodule TrinityCoordinator.AgentPool do
     6 => %{provider: :openai, model: "gpt-4o-mini"}
   }
 
-  defstruct [:agent_id, :provider, :model, :messages, :response]
+  alias TrinityCoordinator.AgentPool.{OpenAI, OpenAICompatible}
+  alias TrinityCoordinator.ProviderPool
 
   @doc """
   Routes the message list to the mapped provider for the selected agent.
@@ -23,32 +25,124 @@ defmodule TrinityCoordinator.AgentPool do
   def call_agent(agent_id, messages, opts \\ []) do
     with {:ok, messages} <- normalize_messages(messages),
          {:ok, spec} <- fetch_agent_spec(agent_id, opts),
-         {:ok, adapter} <- adapter_for(spec.provider, opts),
-         {:ok, response} <-
-           adapter.call(spec, messages, opts) do
+         {:ok, adapter} <- adapter_for(spec, opts),
+         {:ok, response} <- call_adapter(adapter, spec, messages, opts) do
       {:ok, response}
     else
       {:error, reason} -> {:error, reason}
     end
   end
 
-  @doc """
-  Returns the default provider-pool specification.
-  """
-  def agent_specs, do: @agents
+  def call_agent_with_spec(spec, messages, opts \\ [])
 
-  @doc """
-  Returns the number of default provider-pool agents.
-  """
-  def agent_count, do: map_size(@agents)
+  def call_agent_with_spec(%TrinityCoordinator.ProviderPool.Spec{} = spec, messages, opts)
+      when is_list(opts) do
+    call_agent_with_spec(Map.from_struct(spec), messages, opts)
+  end
 
-  defp fetch_agent_spec(agent_id, opts) when is_integer(agent_id) do
-    agents = Keyword.get(opts, :agents, @agents)
-
-    case agents[agent_id] do
-      nil -> {:error, {:unknown_agent, agent_id}}
-      spec -> {:ok, spec}
+  def call_agent_with_spec(spec, messages, opts) when is_map(spec) and is_list(opts) do
+    with {:ok, adapter} <- adapter_for(spec, opts),
+         {:ok, response} <- call_adapter(adapter, spec, messages, opts) do
+      {:ok, response}
+    else
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :provider_dispatch_failed}
     end
+  end
+
+  @doc "Returns the default provider-pool specification as a map keyed by id."
+  def agent_specs, do: @legacy_agents
+
+  @doc "Returns the number of providers in the configured default, explicit list, or named pool."
+  def agent_count, do: map_size(@legacy_agents)
+
+  def agent_count(pool) when is_list(pool), do: ProviderPool.size(pool)
+
+  def agent_count(pool_name) when is_atom(pool_name) or is_binary(pool_name) do
+    TrinityCoordinator.ProviderPool.size(pool_name)
+  end
+
+  @doc "Returns normalized provider specs for an explicit pool."
+  def fetch_pool(opts \\ []) do
+    resolve_pool(opts)
+  end
+
+  @doc "Returns a provider spec for an agent in the selected pool."
+  def fetch_agent_spec(agent_id, opts) when is_integer(agent_id) do
+    with {:ok, pool} <- resolve_pool(opts, :maybe),
+         {:ok, spec} <- fetch_from_pool(agent_id, pool) do
+      {:ok, normalize_spec_fields(spec)}
+    else
+      {:error, :fallback_legacy} ->
+        case @legacy_agents[agent_id] do
+          nil -> {:error, {:unknown_agent, agent_id}}
+          spec -> {:ok, Map.put(spec, :id, agent_id)}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp resolve_pool(opts) do
+    resolve_pool(opts, :strict)
+  end
+
+  defp resolve_pool(opts, mode) do
+    with {:ok, pool} <- find_explicit_pool(opts) do
+      resolve_explicit_pool(pool, mode)
+    end
+  end
+
+  defp resolve_explicit_pool(:default, mode), do: resolve_default_pool(mode)
+
+  defp resolve_explicit_pool(:fallback_legacy, :maybe), do: {:error, :fallback_legacy}
+
+  defp resolve_explicit_pool(:fallback_legacy, _mode), do: {:ok, :default}
+
+  defp resolve_explicit_pool(pool, _mode) when is_list(pool), do: {:ok, pool}
+
+  defp resolve_default_pool(:maybe), do: {:error, :fallback_legacy}
+
+  defp resolve_default_pool(_mode), do: {:ok, ProviderPool.fetch!(:default)}
+
+  defp find_explicit_pool(opts) do
+    cond do
+      Keyword.has_key?(opts, :agents) ->
+        {:ok, :fallback_legacy}
+
+      Keyword.has_key?(opts, :provider_pool) ->
+        parse_provider_pool(Keyword.get(opts, :provider_pool))
+
+      Keyword.has_key?(opts, :provider_pool_name) ->
+        {:ok, ProviderPool.fetch!(Keyword.get(opts, :provider_pool_name))}
+
+      true ->
+        {:ok, :default}
+    end
+  end
+
+  defp parse_provider_pool(pool) when is_list(pool), do: {:ok, pool}
+
+  defp parse_provider_pool(pool) when is_atom(pool) or is_binary(pool),
+    do: {:ok, ProviderPool.fetch!(pool)}
+
+  defp parse_provider_pool(pool), do: {:error, {:invalid_provider_pool, pool}}
+
+  defp fetch_from_pool(agent_id, pool) when is_list(pool) do
+    spec = ProviderPool.spec_for_agent(pool, agent_id)
+
+    if is_nil(spec) do
+      {:error, {:unknown_agent, agent_id}}
+    else
+      {:ok, spec}
+    end
+  end
+
+  defp fetch_from_pool(_agent_id, _), do: {:error, :invalid_provider_pool}
+
+  defp adapter_for(spec, opts) when is_map(spec) do
+    adapter_for(spec[:provider], opts)
   end
 
   defp adapter_for(provider, opts) do
@@ -58,8 +152,31 @@ defmodule TrinityCoordinator.AgentPool do
     end
   end
 
-  defp adapter_from_provider(:openai), do: {:ok, TrinityCoordinator.AgentPool.OpenAI}
+  defp adapter_from_provider(:openai), do: {:ok, OpenAI}
+
+  defp adapter_from_provider(:openai_compatible), do: {:ok, OpenAICompatible}
+
   defp adapter_from_provider(_), do: {:error, :unsupported_provider}
+
+  defp call_adapter(adapter, spec, messages, opts) do
+    adapter_opts =
+      [
+        openai_api_key: Keyword.get(opts, :openai_api_key),
+        openai_base_url: spec[:base_url] || Keyword.get(opts, :openai_base_url),
+        openai_timeout_ms: spec[:timeout_ms] || Keyword.get(opts, :openai_timeout_ms),
+        openai_max_tokens: spec[:max_tokens] || Keyword.get(opts, :openai_max_tokens),
+        openai_temperature: spec[:temperature] || Keyword.get(opts, :openai_temperature)
+      ]
+      |> Keyword.merge(opts)
+      |> Keyword.reject(fn {_k, v} -> is_nil(v) end)
+
+    adapter.call(spec, messages, adapter_opts)
+  end
+
+  defp normalize_spec_fields(%TrinityCoordinator.ProviderPool.Spec{} = spec),
+    do: Map.from_struct(spec)
+
+  defp normalize_spec_fields(spec) when is_map(spec), do: spec
 
   defp normalize_messages(messages) when is_list(messages) do
     normalized =

@@ -120,21 +120,21 @@ hard/soft mask modes.
 
 Maintain this checklist during implementation and revise it as details change.
 
-- [ ] Red: assert the current linear head still produces the same route shape.
-- [ ] Green: introduce `head: :linear` option with no behavior change.
-- [ ] Red: assert unknown head variants fail with a clear error.
-- [ ] Green: add option validation.
-- [ ] Red: assert block partition metadata for uneven input/output dimensions.
-- [ ] Green: implement partition helper.
-- [ ] Red: assert block-diagonal logits have expected shape and parameter count.
-- [ ] Green: implement block-diagonal head.
-- [ ] Red: assert sparse head validates `sparse_k`.
-- [ ] Green: implement sparse deterministic top-k/mask head.
-- [ ] Red: assert all variants work with `CoordinationHead.route/5`.
-- [ ] Green: route through all variants using real Axon forward passes.
-- [ ] Red: add integration test confirming CUDA backend for variant logits.
-- [ ] Green: run variant routing on `EXLA.Backend<cuda:0>`.
-- [ ] Update README and this guide with final API.
+- [x] Red: assert the current linear head still produces the same route shape.
+- [x] Green: introduce `head: :linear` option with no behavior change.
+- [x] Red: assert unknown head variants fail with a clear error.
+- [x] Green: add option validation.
+- [x] Red: assert block partition metadata for uneven input/output dimensions.
+- [x] Green: implement partition helper.
+- [x] Red: assert block-diagonal logits have expected shape and parameter count.
+- [x] Green: implement block-diagonal head.
+- [x] Red: assert sparse head validates `sparse_k`.
+- [x] Green: implement sparse deterministic top-k/mask head.
+- [x] Red: assert all variants work with `CoordinationHead.route/5`.
+- [x] Green: route through all variants using real Axon forward passes.
+- [x] Red: add integration test confirming CUDA backend for variant logits.
+- [x] Green: run variant routing on `EXLA.Backend<cuda:0>`.
+- [x] Update README and this guide with final API.
 
 ## Tests
 

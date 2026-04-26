@@ -67,9 +67,9 @@ now follows:
 - Role routing matters: Thinker plans, Worker executes, Verifier emits
   `ACCEPT` or `REVISE`.
 - The full paper favors sep-CMA-ES for terminal reward optimization, while the
-  appendix also describes a supervised frozen-SLM path. This repo currently
-  implements the supervised head-training path and leaves sep-CMA-ES as a
-  roadmap item.
+  appendix also describes a supervised frozen-SLM path. This repo now includes a
+  terminal-reward sep-CMA-ES core with deterministic codec/recombination,
+  stop gates, and explicit provider-gated trajectory mode.
 
 ## Current Status
 
@@ -85,6 +85,8 @@ Implemented and tested:
 - `Orchestrator`: requires an SLM context, routes with the real extracted
   vector, injects the selected role, and dispatches to the provider boundary.
 - `mix trinity.demo`: prints a complete, step-by-step GPU-backed demonstration.
+- `sep-CMA-ES trainer`: deterministic codec/recombination loop, terminal-reward
+  objective, and explicit provider-gated trajectory mode.
 
 The integration tests use `hf-internal-testing/tiny-random-gpt2` because it is
 small enough for repeatable CI/local verification. It proves the mechanics with
@@ -268,6 +270,11 @@ calls through `AgentPool`.
 Provider boundary for selected agents. The built-in adapter is
 OpenAI-compatible and expects `OPENAI_API_KEY` or `openai_api_key: ...`.
 
+### `TrinityCoordinator.ProviderPool`
+
+Provider pool management with normalized runtime specs, validation, and explicit
+pool selection. Use a named pool to control which providers are available.
+
 ## Testing
 
 Fast tests:
@@ -286,6 +293,26 @@ XLA_TARGET=cuda12 mix test --only integration
 Provider calls are not silently simulated in core tests. Without credentials,
 provider-boundary tests assert the real adapter returns
 `:missing_openai_api_key`.
+
+### Provider pool example
+
+```elixir
+Application.put_env(:trinity_coordinator, :provider_pools,
+  default: [
+    [id: 0, name: :openai_fast, provider: :openai, model: "gpt-4o-mini"],
+    [id: 1, name: :local, provider: :openai_compatible, model: "llama", base_url: "http://127.0.0.1:11434/v1"]
+  ])
+
+TrinityCoordinator.Orchestrator.run_loop(
+  pid,
+  model,
+  params,
+  max_turns: 4,
+  slm_context: {model_info, tokenizer},
+  provider_pool: :default,
+  agent_pool_opts: [openai_api_key: "<api-key>"]
+)
+```
 
 ## Development Checks
 

@@ -123,21 +123,21 @@ enabled in automated provider tests by default.
 
 Maintain and revise this checklist as the trace design evolves.
 
-- [ ] Red: validate a minimal `Trace.Event`.
-- [ ] Green: implement event struct and required field checks.
-- [ ] Red: assert stable transcript hash for equivalent message maps.
-- [ ] Green: implement canonical message serialization and SHA-256 hashing.
-- [ ] Red: assert response redaction removes API keys and authorization headers.
-- [ ] Green: implement `Trace.Redactor`.
-- [ ] Red: assert JSONL sink appends exactly one line per event.
-- [ ] Green: implement `Trace.JSONL`.
-- [ ] Red: assert orchestrator emits route metadata without full content.
-- [ ] Green: integrate trace context into `Orchestrator`.
-- [ ] Red: assert provider boundary emits provider/model/status metadata.
-- [ ] Green: integrate `AgentPool` event emission.
-- [ ] Red: add integration test with real SLM extraction and trace output.
-- [ ] Green: verify trace includes CUDA backend and logits.
-- [ ] Update README, demo output, and this guide.
+- [x] Red: validate a minimal `Trace.Event`.
+- [x] Green: implement event struct and required field checks.
+- [x] Red: assert stable transcript hash for equivalent message maps.
+- [x] Green: implement canonical message serialization and SHA-256 hashing.
+- [x] Red: assert response redaction removes API keys and authorization headers.
+- [x] Green: implement `Trace.Redactor`.
+- [x] Red: assert JSONL sink appends exactly one line per event.
+- [x] Green: implement `Trace.JSONL`.
+- [x] Red: assert orchestrator emits route metadata without full content.
+- [x] Green: integrate trace context into `Orchestrator`.
+- [x] Red: assert provider boundary emits provider/model/status metadata.
+- [x] Green: integrate `AgentPool` event emission.
+- [x] Red: add integration test with real SLM extraction and trace output.
+- [x] Green: verify trace includes CUDA backend and logits.
+- [x] Update README, demo output, and this guide.
 
 ## Integration Points
 

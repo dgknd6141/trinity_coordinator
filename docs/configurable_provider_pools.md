@@ -92,20 +92,20 @@ Validation rules:
 
 Maintain and revise this checklist during implementation.
 
-- [ ] Red: config parser rejects duplicate ids.
-- [ ] Green: implement provider spec normalization.
-- [ ] Red: config parser rejects unknown providers.
-- [ ] Green: add provider validation.
-- [ ] Red: pool size matches highest contiguous id count.
-- [ ] Green: implement `ProviderPool.size/1`.
-- [ ] Red: `AgentPool.call_agent/3` accepts a provider pool.
-- [ ] Green: route selected agent through the supplied pool.
-- [ ] Red: orchestrator derives default `num_agents` from provider pool.
-- [ ] Green: integrate `ProviderPool` with `Orchestrator`.
-- [ ] Red: OpenAI-compatible adapter respects configured base URL.
-- [ ] Green: implement adapter without leaking credentials.
-- [ ] Red: README/demo show pool selection.
-- [ ] Green: add docs and demo option.
+- [x] Red: config parser rejects duplicate ids.
+- [x] Green: implement provider spec normalization.
+- [x] Red: config parser rejects unknown providers.
+- [x] Green: add provider validation.
+- [x] Red: pool size matches highest contiguous id count.
+- [x] Green: implement `ProviderPool.size/1`.
+- [x] Red: `AgentPool.call_agent/3` accepts a provider pool.
+- [x] Green: route selected agent through the supplied pool.
+- [x] Red: orchestrator derives default `num_agents` from provider pool.
+- [x] Green: integrate `ProviderPool` with `Orchestrator`.
+- [x] Red: OpenAI-compatible adapter respects configured base URL.
+- [x] Green: implement adapter without leaking credentials.
+- [x] Red: README/demo show pool selection.
+- [x] Green: add docs and demo option.
 
 ## Implementation Plan
 

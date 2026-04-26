@@ -76,4 +76,110 @@ defmodule TrinityCoordinator.CoordinationHeadTest do
     assert route.role_id == 0
     assert inspect(route.logits) =~ "EXLA.Backend<"
   end
+
+  test "supports linear variant as the default with unchanged semantics" do
+    model = CoordinationHead.build_model(10, 4, 3)
+    metadata = CoordinationHead.variant_metadata(10, 4, 3)
+
+    {init_fn, _predict_fn} = Axon.build(model)
+    params = init_fn.(Nx.template({1, 10}, :f32), Axon.ModelState.empty())
+
+    route = CoordinationHead.route(model, params, Nx.iota({1, 10}, type: :f32), 4, 3)
+
+    assert is_integer(route.agent_id)
+    assert metadata.head == :linear
+    assert metadata.parameter_count == 10 * (4 + 3) + (4 + 3)
+    assert metadata.input_partitions == [{0, 10}]
+    assert metadata.output_partitions == [{0, 7}]
+  end
+
+  test "supports unknown head variants with a clear error" do
+    assert_raise ArgumentError, fn ->
+      CoordinationHead.build_model(10, 4, 3, head: :unknown)
+    end
+  end
+
+  test "builds block-diagonal models with metadata and route bounds" do
+    input_dim = 7
+    num_agents = 3
+    num_roles = 2
+    blocks = 3
+
+    model =
+      CoordinationHead.build_model(input_dim, num_agents, num_roles,
+        head: :block_diagonal,
+        blocks: blocks
+      )
+
+    metadata =
+      CoordinationHead.variant_metadata(input_dim, num_agents, num_roles,
+        head: :block_diagonal,
+        blocks: blocks
+      )
+
+    assert metadata.head == :block_diagonal
+    assert metadata.blocks == blocks
+    assert metadata.input_partitions == [{0, 3}, {3, 2}, {5, 2}]
+    assert metadata.output_partitions == [{0, 2}, {2, 2}, {4, 1}]
+
+    {init_fn, _predict_fn} = Axon.build(model)
+    params = init_fn.(Nx.template({1, input_dim}, :f32), Axon.ModelState.empty())
+
+    route =
+      CoordinationHead.route(
+        model,
+        params,
+        Nx.iota({1, input_dim}, type: :f32),
+        num_agents,
+        num_roles
+      )
+
+    assert route.agent_id in 0..(num_agents - 1)
+    assert route.role_id in 0..(num_roles - 1)
+    expected_params = 17
+    assert metadata.parameter_count == expected_params
+  end
+
+  test "supports sparse models with fixed projection width and metadata" do
+    input_dim = 10
+    num_agents = 2
+    num_roles = 3
+
+    model =
+      CoordinationHead.build_model(input_dim, num_agents, num_roles,
+        head: :sparse,
+        sparse_k: 4
+      )
+
+    metadata =
+      CoordinationHead.variant_metadata(input_dim, num_agents, num_roles,
+        head: :sparse,
+        sparse_k: 4
+      )
+
+    assert metadata.head == :sparse
+    assert metadata.effective_sparse_k == 4
+
+    {init_fn, _predict_fn} = Axon.build(model)
+    params = init_fn.(Nx.template({1, input_dim}, :f32), Axon.ModelState.empty())
+
+    route =
+      CoordinationHead.route(
+        model,
+        params,
+        Nx.iota({1, input_dim}, type: :f32),
+        num_agents,
+        num_roles
+      )
+
+    assert route.agent_id in 0..(num_agents - 1)
+    assert route.role_id in 0..(num_roles - 1)
+    assert metadata.parameter_count == 4 * (num_agents + num_roles) + (num_agents + num_roles)
+  end
+
+  test "validates sparse_k to fit input width" do
+    assert_raise ArgumentError, fn ->
+      CoordinationHead.build_model(6, 2, 3, head: :sparse, sparse_k: 8)
+    end
+  end
 end

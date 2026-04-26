@@ -1,0 +1,5 @@
+{"id":"math_001","family":"math","messages":[{"role":"user","content":"Compute 12 + 30."}],"expected_agent":0,"expected_role":2,"source":"fixture"}
+{"id":"code_001","family":"coding","messages":[{"role":"user","content":"Write a quick sort function in Python."}],"expected_agent":1,"expected_role":1,"source":"fixture"}
+{"id":"proof_001","family":"proof","messages":[{"role":"user","content":"Show why 1 + 1 = 2."}],"expected_agent":2,"expected_role":1,"source":"fixture"}
+{"id":"math_002","family":"math","messages":[{"role":"user","content":"Differentiate x^2 + 3x."}],"expected_agent":0,"expected_role":2,"source":"fixture"}
+{"id":"coding_002","family":"coding","messages":[{"role":"user","content":"Find the syntax error in `fn x -> x +`."}],"expected_agent":1,"expected_role":0,"source":"fixture"}

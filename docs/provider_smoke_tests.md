@@ -69,19 +69,19 @@ guards.
 
 Maintain and revise this checklist during implementation.
 
-- [ ] Red: provider tests skip when enable env var is absent.
-- [ ] Green: implement credential/budget guard.
-- [ ] Red: budget parser rejects missing, zero, and invalid values.
-- [ ] Green: implement budget parsing.
-- [ ] Red: provider call options enforce low token limits and timeouts.
-- [ ] Green: add smoke-test provider options.
-- [ ] Red: real smoke test requires redacted trace path.
-- [ ] Green: integrate trace persistence.
-- [ ] Red: multi-turn test asserts at least one role prompt is injected.
-- [ ] Green: run real orchestrator with a tiny task.
-- [ ] Red: verifier termination or max-turn outcome is recorded.
-- [ ] Green: assert trace contains final run outcome.
-- [ ] Update README and this guide.
+- [x] Red: provider tests skip when enable env var is absent.
+- [x] Green: implement credential/budget guard.
+- [x] Red: budget parser rejects missing, zero, and invalid values.
+- [x] Green: implement budget parsing.
+- [x] Red: provider call options enforce low token limits and timeouts.
+- [x] Green: add smoke-test provider options.
+- [x] Red: real smoke test requires redacted trace path.
+- [x] Green: integrate trace persistence.
+- [x] Red: multi-turn test asserts at least one role prompt is injected.
+- [x] Green: run real orchestrator with a tiny task.
+- [x] Red: verifier termination or max-turn outcome is recorded.
+- [x] Green: assert trace contains final run outcome.
+- [x] Update README and this guide.
 
 Provider smoke tests must use the real `AgentPool` adapter and real provider
 responses. Do not replace provider calls with local fakes in this suite.

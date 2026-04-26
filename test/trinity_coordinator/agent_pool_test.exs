@@ -11,7 +11,29 @@ defmodule TrinityCoordinator.AgentPoolTest do
     messages = [%{role: "user", content: "Hi"}]
 
     assert {:error, :missing_openai_api_key} =
-             AgentPool.call_agent(0, messages, openai_api_key: nil)
+             AgentPool.call_agent(0, messages, openai_api_key: "")
+  end
+
+  test "routes known agents from an explicit provider pool" do
+    pool = [
+      [id: 0, provider: :openai, model: "gpt-4o-mini", max_tokens: 5, temperature: 0.1],
+      [id: 1, provider: :openai, model: "gpt-4o-mini", max_tokens: 5, temperature: 0.1]
+    ]
+
+    messages = [%{role: "user", content: "Hi"}]
+
+    assert {:error, :missing_openai_api_key} =
+             AgentPool.call_agent(1, messages, provider_pool: pool, openai_api_key: "")
+  end
+
+  test "provider pool option can be given by name" do
+    messages = [%{role: "user", content: "Hi"}]
+
+    assert is_integer(AgentPool.agent_count(:default))
+
+    # If default is configured, this still validates before provider dispatch and fails with credentials.
+    assert {:error, :missing_openai_api_key} =
+             AgentPool.call_agent(0, messages, provider_pool_name: :default, openai_api_key: "")
   end
 
   test "unknown agent ids fail fast" do

@@ -93,21 +93,21 @@ Optional fields:
 
 Maintain and revise this checklist during implementation.
 
-- [ ] Red: dataset loader rejects malformed JSONL.
-- [ ] Green: implement dataset schema validation.
-- [ ] Red: feature extractor returns one vector per case.
-- [ ] Green: use real `Extractor.extract_batch_penultimate_hidden_states/3`.
-- [ ] Red: separability suite computes deterministic simple metrics.
-- [ ] Green: implement centroid and export-ready report.
-- [ ] Red: routing suite computes agent/role accuracy and confusion matrices.
-- [ ] Green: implement route evaluation with real `CoordinationHead.route/5`.
-- [ ] Red: turn-budget suite records accept/revise/max-turn outcomes.
-- [ ] Green: integrate orchestrator in a credential-free local mode where
+- [x] Red: dataset loader rejects malformed JSONL.
+- [x] Green: implement dataset schema validation.
+- [x] Red: feature extractor returns one vector per case.
+- [x] Green: use real `Extractor.extract_batch_penultimate_hidden_states/3`.
+- [x] Red: separability suite computes deterministic simple metrics.
+- [x] Green: implement centroid and export-ready report.
+- [x] Red: routing suite computes agent/role accuracy and confusion matrices.
+- [x] Green: implement route evaluation with real `CoordinationHead.route/5`.
+- [x] Red: turn-budget suite records accept/revise/max-turn outcomes.
+- [x] Green: integrate orchestrator in a credential-free local mode where
       provider calls are replaced by explicitly labeled fixture outcomes only
       outside core router tests.
-- [ ] Red: benchmark command writes JSON report.
-- [ ] Green: implement `mix trinity.benchmark`.
-- [ ] Update README and this guide.
+- [x] Red: benchmark command writes JSON report.
+- [x] Green: implement `mix trinity.benchmark`.
+- [x] Update README and this guide.
 
 For core route and extraction metrics, use real Bumblebee/Axon/Nx/EXLA. Fixture
 labels are acceptable as benchmark labels; they are not mocks of the core tensor
