@@ -18,6 +18,25 @@ current `Bumblebee` dependency lane. That test model proves the real mechanics:
 A production profile replaces only the tiny SLM profile. It must not change the
 router contract.
 
+## Implementation Discipline
+
+Use TDD/RGR throughout this work:
+
+1. Red: write the smallest failing test or executable probe for the next
+   requirement.
+2. Green: implement only enough to pass that test.
+3. Refactor: simplify the design while keeping the test green.
+
+Maintain a live implementation checklist in the PR or working tree. Revise it
+when new constraints are discovered, when dependency behavior changes, or when a
+milestone is split. If context compaction occurs, recontextualize by reading
+this guide, reading the active checklist, running `git status --short`, and
+rerunning the smallest relevant test before editing.
+
+Every milestone must end with the quality gates named in that milestone. Before
+merge, run the final quality gate, commit only QA-passing changes, and push
+every repo touched by the work.
+
 ## Target Contract
 
 A production Qwen profile is ready when the project can run this shape of code:
@@ -83,7 +102,8 @@ full validation matrix below passes on the target model.
 
 ## Model Selection Checklist
 
-Before adding the profile, select a single canonical repository and record:
+Maintain and update this checklist as the profile work progresses. Before adding
+the profile, select a single canonical repository and record:
 
 - Hugging Face repository id.
 - Model family and exact version.
@@ -244,9 +264,35 @@ end
 Keep `tiny_gpt2` as the fast, cheap verification profile. Add Qwen as an
 explicit production profile.
 
+## TDD/RGR Checklist
+
+Maintain this checklist in the implementation PR or working tree and revise it
+as dependency support, model choice, or profile API details change.
+
+- [ ] Red: add a metadata test for the current tiny profile.
+- [ ] Green: introduce `SLMProfile.tiny_gpt2/0` without changing behavior.
+- [ ] Red: add a metadata test for the Qwen profile.
+- [ ] Green: add `SLMProfile.qwen_coordinator/0` with repository, module,
+      architecture, hidden-size, and CUDA-target metadata.
+- [ ] Red: add a loader test for profile-based model loading using tiny GPT-2.
+- [ ] Green: implement `SLMProfile.load_profile/1`.
+- [ ] Red: add Qwen compatibility probe or `@tag :qwen` model-load test.
+- [ ] Green: resolve dependency/module support without breaking tiny-profile
+      integration tests.
+- [ ] Red: add Qwen hidden-state extraction test requiring CUDA backend.
+- [ ] Green: extract the Qwen second-to-last token vector.
+- [ ] Red: add Qwen routing test using `CoordinationHead.route/5`.
+- [ ] Green: route from the Qwen vector with real Axon logits.
+- [ ] Red: add demo profile option test or command-level smoke check.
+- [ ] Green: implement `mix trinity.demo --profile qwen`.
+- [ ] Update README, this guide, and HexDocs extras.
+
 ## Required Tests
 
 Add tests in this order.
+
+Keep these as checklist items in the implementation PR and revise them if the
+resolved Bumblebee/Qwen API changes.
 
 ### 1. Profile metadata test
 
@@ -390,6 +436,21 @@ Record in the PR:
 - Observed hidden-state shape.
 - Observed second-to-last vector shape.
 
+## Compaction Handoff
+
+If context compaction occurs during Qwen profile work:
+
+1. Re-read this guide.
+2. Read the active profile checklist.
+3. Run `git status --short`.
+4. Inspect changed dependency, profile, extractor, demo, and test files.
+5. Confirm the intended `XLA_TARGET`.
+6. Run the smallest relevant profile or integration test.
+7. Continue from the next unchecked checklist item.
+
+Do not restart from the old tiny-profile baseline unless the checklist says the
+current Qwen branch is invalid.
+
 ## Acceptance Criteria
 
 Do not mark the roadmap item complete until all of the following are true:
@@ -406,6 +467,29 @@ Do not mark the roadmap item complete until all of the following are true:
 - `mix credo --strict`, `mix dialyzer`, and `mix docs` pass.
 - README and HexDocs explain the profile, required `XLA_TARGET`, model id, and
   expected hardware footprint.
+
+## Final Quality Gate
+
+Run the full non-provider gate before merge:
+
+```bash
+XLA_TARGET=<cuda-target> mix format --check-formatted
+XLA_TARGET=<cuda-target> mix test
+XLA_TARGET=<cuda-target> mix test --only integration
+XLA_TARGET=<cuda-target> mix credo --strict
+XLA_TARGET=<cuda-target> mix dialyzer
+XLA_TARGET=<cuda-target> mix docs
+```
+
+Run the Qwen-specific gate before marking the profile ready:
+
+```bash
+XLA_TARGET=<cuda-target> mix test --only qwen --trace
+XLA_TARGET=<cuda-target> mix trinity.demo --profile qwen
+```
+
+Commit and push only after the relevant gates pass. If dependency work touches
+dotfiles or host setup repos, QA and push those repos too.
 
 ## Non-Goals
 

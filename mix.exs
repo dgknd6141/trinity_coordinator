@@ -74,9 +74,20 @@ defmodule TrinityCoordinator.MixProject do
       main: "readme",
       source_ref: "v#{@version}",
       source_url: "https://github.com/nshkrdotcom/trinity_coordinator",
-      extras: ["CHANGELOG.md", "README.md", "docs/production_qwen_slm_profile.md"],
+      extras: [
+        "CHANGELOG.md",
+        "README.md",
+        "docs/production_qwen_slm_profile.md",
+        "docs/sep_cma_es_training.md",
+        "docs/coordination_head_variants.md",
+        "docs/trace_persistence.md",
+        "docs/configurable_provider_pools.md",
+        "docs/benchmark_harnesses.md",
+        "docs/provider_smoke_tests.md"
+      ],
       groups_for_extras: [
-        Guides: ~r/README|production_qwen_slm_profile/
+        Guides:
+          ~r/README|production_qwen_slm_profile|sep_cma_es_training|coordination_head_variants|trace_persistence|configurable_provider_pools|benchmark_harnesses|provider_smoke_tests/
       ],
       groups_for_modules: [
         Core: [

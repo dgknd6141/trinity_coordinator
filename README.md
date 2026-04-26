@@ -306,18 +306,22 @@ XLA_TARGET=cuda12 mix docs
   Bumblebee/Nx dependency lane supports it cleanly on this host. See
   [Production Qwen SLM Profile](docs/production_qwen_slm_profile.md).
 - Implement sep-CMA-ES training for terminal binary rewards, matching the
-  paper's label-free optimization path.
+  paper's label-free optimization path. See
+  [sep-CMA-ES Training For Terminal Rewards](docs/sep_cma_es_training.md).
 - Add block-diagonal and sparse head variants from the appendix for parameter
-  efficiency and ablation work.
+  efficiency and ablation work. See
+  [Coordination Head Variants](docs/coordination_head_variants.md).
 - Add trace persistence for every routed turn: transcript hash, hidden-state
   shape/backend, logits, selected agent, selected role, provider response, and
-  verifier result.
+  verifier result. See [Trace Persistence](docs/trace_persistence.md).
 - Add configurable provider pools instead of the current static OpenAI-compatible
-  mapping.
+  mapping. See
+  [Configurable Provider Pools](docs/configurable_provider_pools.md).
 - Add benchmark harnesses for task-family separability, routing accuracy, and
-  turn-budget behavior.
+  turn-budget behavior. See
+  [Benchmark Harnesses](docs/benchmark_harnesses.md).
 - Add real multi-turn provider smoke tests gated by explicit credentials and
-  budget controls.
+  budget controls. See [Provider Smoke Tests](docs/provider_smoke_tests.md).
 
 ## Credits
 
