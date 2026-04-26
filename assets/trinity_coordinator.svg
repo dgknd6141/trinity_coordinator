@@ -22,7 +22,7 @@
       <feMerge>
         <feMergeNode in="blur"/>
         <feMergeNode in="SourceGraphic"/>
-      </feMergeNode>
+      </feMerge>
     </filter>
     <clipPath id="hex-clip">
       <polygon points="100,12 178,54 178,146 100,188 22,146 22,54"/>
