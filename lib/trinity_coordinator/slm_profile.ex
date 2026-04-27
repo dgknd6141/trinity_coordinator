@@ -64,7 +64,17 @@ defmodule TrinityCoordinator.SLMProfile do
     }
   end
 
-  @doc "Production artifact-driven Sakana-adapted Qwen coordinator profile."
+  @doc """
+  Production artifact-driven Sakana-adapted Qwen coordinator profile.
+
+  This profile patches the Qwen backbone tensors only.  The routing head is a
+  separate Axon model and must be initialized from the artifact router-head
+  tensor via `TrinityCoordinator.Sakana.Head` or
+  `TrinityCoordinator.Sakana.Coordinator`.
+
+  Keeping the SLM params and routing-head params separate avoids trying to add
+  `routing_head` into Bumblebee's causal-LM param tree.
+  """
   def qwen_sakana_adapted do
     %{
       name: :qwen_sakana_adapted,
@@ -75,11 +85,17 @@ defmodule TrinityCoordinator.SLMProfile do
       xla_target: "cuda12",
       status: :ready,
       adapted_artifact_dir: Artifact.default_output_dir(),
+      artifact_patch_options: [
+        patch_router_head: false,
+        allow_incomplete: false,
+        cast_tensors: true
+      ],
       load_options: [
         backend: {EXLA.Backend, client: :cuda},
         type: :bf16
       ],
-      notes: "Qwen3-0.6B causal-LM coordinator profile with runtime Sakana adaptation artifacts"
+      notes:
+        "Qwen3-0.6B causal-LM coordinator profile with runtime Sakana SVF backbone artifacts; routing head is loaded separately"
     }
   end
 
@@ -259,7 +275,12 @@ defmodule TrinityCoordinator.SLMProfile do
         {:ok, model_info}
 
       artifact_dir ->
-        {:ok, Artifact.patch_model_info!(model_info, artifact_dir)}
+        opts =
+          profile
+          |> Map.get(:artifact_patch_options, [])
+          |> Keyword.put_new(:patch_router_head, false)
+
+        {:ok, Artifact.patch_model_info!(model_info, artifact_dir, opts)}
     end
   rescue
     e ->

@@ -16,7 +16,7 @@ defmodule TrinityCoordinator.AgentPool do
     6 => %{provider: :openai, model: "gpt-4o-mini"}
   }
 
-  alias TrinityCoordinator.AgentPool.{OpenAI, OpenAICompatible}
+  alias TrinityCoordinator.AgentPool.{Mock, OpenAI, OpenAICompatible}
   alias TrinityCoordinator.ProviderPool
 
   @doc """
@@ -41,7 +41,8 @@ defmodule TrinityCoordinator.AgentPool do
   end
 
   def call_agent_with_spec(spec, messages, opts) when is_map(spec) and is_list(opts) do
-    with {:ok, adapter} <- adapter_for(spec, opts),
+    with {:ok, messages} <- normalize_messages(messages),
+         {:ok, adapter} <- adapter_for(spec, opts),
          {:ok, response} <- call_adapter(adapter, spec, messages, opts) do
       {:ok, response}
     else
@@ -142,7 +143,7 @@ defmodule TrinityCoordinator.AgentPool do
   defp fetch_from_pool(_agent_id, _), do: {:error, :invalid_provider_pool}
 
   defp adapter_for(spec, opts) when is_map(spec) do
-    adapter_for(spec[:provider], opts)
+    adapter_for(spec[:provider] || spec["provider"], opts)
   end
 
   defp adapter_for(provider, opts) do
@@ -153,8 +154,13 @@ defmodule TrinityCoordinator.AgentPool do
   end
 
   defp adapter_from_provider(:openai), do: {:ok, OpenAI}
+  defp adapter_from_provider("openai"), do: {:ok, OpenAI}
 
   defp adapter_from_provider(:openai_compatible), do: {:ok, OpenAICompatible}
+  defp adapter_from_provider("openai_compatible"), do: {:ok, OpenAICompatible}
+
+  defp adapter_from_provider(:mock), do: {:ok, Mock}
+  defp adapter_from_provider("mock"), do: {:ok, Mock}
 
   defp adapter_from_provider(_), do: {:error, :unsupported_provider}
 
@@ -165,7 +171,10 @@ defmodule TrinityCoordinator.AgentPool do
         openai_base_url: spec[:base_url] || Keyword.get(opts, :openai_base_url),
         openai_timeout_ms: spec[:timeout_ms] || Keyword.get(opts, :openai_timeout_ms),
         openai_max_tokens: spec[:max_tokens] || Keyword.get(opts, :openai_max_tokens),
-        openai_temperature: spec[:temperature] || Keyword.get(opts, :openai_temperature)
+        openai_temperature: spec[:temperature] || Keyword.get(opts, :openai_temperature),
+        mock_agent_fn: Keyword.get(opts, :mock_agent_fn),
+        mock_response: Keyword.get(opts, :mock_response),
+        mock_responses: Keyword.get(opts, :mock_responses)
       ]
       |> Keyword.merge(opts)
       |> Keyword.reject(fn {_k, v} -> is_nil(v) end)

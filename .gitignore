@@ -29,5 +29,6 @@ priv/plts/*.plt
 # the checked-in source vector, Qwen base model, and exporter code, and are too
 # large to commit.
 /priv/sakana_trinity/adapted_qwen3_0_6b_layer26/
+/priv/sakana_conductor/
 
 /docs/priv/

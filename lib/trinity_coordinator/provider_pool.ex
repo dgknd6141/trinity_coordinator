@@ -9,6 +9,10 @@ defmodule TrinityCoordinator.ProviderPool do
           default: [
             [id: 0, name: :fast_openai, provider: :openai, model: "gpt-4o-mini"],
             ...
+          ],
+          mock: [
+            [id: 0, name: :mock_0, provider: :mock, model: "mock-agent-0"],
+            ...
           ]
         ]
   """
@@ -27,6 +31,15 @@ defmodule TrinityCoordinator.ProviderPool do
       [id: 4, name: :fast_openai_2, provider: :openai, model: "gpt-4o-mini"],
       [id: 5, name: :reasoner_2, provider: :openai, model: "gpt-4o-mini"],
       [id: 6, name: :fallback_openai, provider: :openai, model: "gpt-4o-mini"]
+    ],
+    mock: [
+      [id: 0, name: :mock_0, provider: :mock, model: "mock-agent-0"],
+      [id: 1, name: :mock_1, provider: :mock, model: "mock-agent-1"],
+      [id: 2, name: :mock_2, provider: :mock, model: "mock-agent-2"],
+      [id: 3, name: :mock_3, provider: :mock, model: "mock-agent-3"],
+      [id: 4, name: :mock_4, provider: :mock, model: "mock-agent-4"],
+      [id: 5, name: :mock_5, provider: :mock, model: "mock-agent-5"],
+      [id: 6, name: :mock_6, provider: :mock, model: "mock-agent-6"]
     ]
   }
 
@@ -150,7 +163,7 @@ defmodule TrinityCoordinator.ProviderPool.Spec do
           enabled: boolean()
         }
 
-  @known_providers [:openai, :openai_compatible]
+  @known_providers [:openai, :openai_compatible, :mock]
 
   def normalize(raw) when is_list(raw) do
     with {:ok, specs} <- normalize_list(raw, []) do
@@ -265,7 +278,7 @@ defmodule TrinityCoordinator.ProviderPool.Spec do
          {:ok, model} <- coerce_non_empty_binary(normalized[:model], :model),
          {:ok, timeout_ms} <- coalesce_positive_integer(normalized[:timeout_ms], 30_000),
          {:ok, max_tokens} <- coalesce_positive_integer(normalized[:max_tokens], 200),
-         {:ok, temperature} <- coalesce_positive_number(normalized[:temperature], 0.2) do
+         {:ok, temperature} <- coalesce_non_negative_number(normalized[:temperature], 0.2) do
       with {:ok, name} <- normalize_name(normalized[:name], id) do
         spec = %__MODULE__{
           id: id,
@@ -294,7 +307,7 @@ defmodule TrinityCoordinator.ProviderPool.Spec do
          {:ok, _id} <- coerce_id(spec.id),
          {:ok, timeout_ms} <- coalesce_positive_integer(spec.timeout_ms, 30_000),
          {:ok, max_tokens} <- coalesce_positive_integer(spec.max_tokens, 200),
-         {:ok, temperature} <- coalesce_positive_number(spec.temperature, 0.2) do
+         {:ok, temperature} <- coalesce_non_negative_number(spec.temperature, 0.2) do
       {:ok,
        %__MODULE__{
          id: spec.id,
@@ -356,10 +369,10 @@ defmodule TrinityCoordinator.ProviderPool.Spec do
 
   defp coalesce_positive_integer(_, _), do: {:error, "invalid integer value"}
 
-  defp coalesce_positive_number(nil, default), do: {:ok, default}
+  defp coalesce_non_negative_number(nil, default), do: {:ok, default}
 
-  defp coalesce_positive_number(value, _default) when is_number(value) and value > 0,
+  defp coalesce_non_negative_number(value, _default) when is_number(value) and value >= 0,
     do: {:ok, value / 1}
 
-  defp coalesce_positive_number(_, _), do: {:error, "invalid number value"}
+  defp coalesce_non_negative_number(_, _), do: {:error, "invalid number value"}
 end

@@ -1,13 +1,15 @@
 defmodule TrinityCoordinator.Training.Evaluator do
-  @moduledoc "
+  @moduledoc """
   Evaluation boundary for complete routing trajectories used by sep-CMA-ES.
 
   The evaluator owns task execution and reward shaping while delegating
   trajectory execution to the orchestrator.
-  "
+  """
 
   alias TrinityCoordinator.{Orchestrator, StateManager}
   alias TrinityCoordinator.Training.SepCMAES.Reward
+
+  @default_max_turns 5
 
   @type task_spec :: %{
           required(:id) => String.t() | atom() | integer(),
@@ -151,8 +153,8 @@ defmodule TrinityCoordinator.Training.Evaluator do
   end
 
   defp run_full_trajectory(model, candidate_model_state, task, run_opts, slm_context) do
-    with :ok <- validate_provider_backed_mode(run_opts) do
-      max_turns = Keyword.get(run_opts, :max_turns, 3)
+    with :ok <- validate_trajectory_execution_mode(run_opts) do
+      max_turns = Keyword.get(run_opts, :max_turns, @default_max_turns)
       orchestrator_opts = Keyword.get(run_opts, :orchestrator_opts, [])
 
       with {:ok, pid} <- StateManager.start_link(task.messages),
@@ -172,18 +174,32 @@ defmodule TrinityCoordinator.Training.Evaluator do
     end
   end
 
-  defp validate_provider_backed_mode(run_opts) do
-    if Keyword.get(run_opts, :provider_enabled, false) do
-      case validate_provider_budget(Keyword.get(run_opts, :provider_budget_usd)) do
-        :ok ->
-          validate_provider_credentials(Keyword.get(run_opts, :provider_credentials, nil))
+  defp validate_trajectory_execution_mode(run_opts) do
+    cond do
+      mocked_trajectory?(run_opts) ->
+        :ok
 
-        error ->
-          error
-      end
-    else
-      {:error, :provider_backed_training_disabled}
+      Keyword.get(run_opts, :provider_enabled, false) ->
+        case validate_provider_budget(Keyword.get(run_opts, :provider_budget_usd)) do
+          :ok ->
+            validate_provider_credentials(Keyword.get(run_opts, :provider_credentials, nil))
+
+          error ->
+            error
+        end
+
+      true ->
+        {:error, :provider_backed_training_disabled}
     end
+  end
+
+  defp mocked_trajectory?(run_opts) do
+    orchestrator_opts = Keyword.get(run_opts, :orchestrator_opts, [])
+
+    is_function(Keyword.get(run_opts, :mock_agent_fn), 2) or
+      is_function(Keyword.get(run_opts, :mock_agent_fn), 3) or
+      is_function(Keyword.get(orchestrator_opts, :mock_agent_fn), 2) or
+      is_function(Keyword.get(orchestrator_opts, :mock_agent_fn), 3)
   end
 
   defp validate_provider_budget(nil), do: {:error, :provider_budget_missing}
