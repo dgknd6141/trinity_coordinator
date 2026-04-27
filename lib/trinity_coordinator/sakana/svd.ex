@@ -65,7 +65,7 @@ defmodule TrinityCoordinator.Sakana.SVD do
   def flatten_tensor_entries(container) do
     container
     |> do_flatten([])
-    |> Enum.sort_by(fn %{path: path} -> path end)
+    |> Enum.sort_by(fn %{path: path} -> tensor_order_key(path) end)
   end
 
   @doc "Returns decomposable tensors from a nested params container."
@@ -347,6 +347,59 @@ defmodule TrinityCoordinator.Sakana.SVD do
   end
 
   defp do_flatten(_other, _path), do: []
+
+  defp tensor_order_key(path) when is_binary(path) do
+    cond do
+      String.starts_with?(path, "embedder.") ->
+        {0, 0, 0, path}
+
+      String.starts_with?(path, "decoder.blocks.") ->
+        decoder_block_order(path)
+
+      String.starts_with?(path, "language_modeling_head.") ->
+        {2, 0, 0, path}
+
+      true ->
+        {3, 0, 0, path}
+    end
+  end
+
+  defp decoder_block_order(path) do
+    block_index = decoder_block_index(path)
+
+    cond do
+      String.contains?(path, ".self_attention.query.") ->
+        {1, block_index, 0, path}
+
+      String.contains?(path, ".self_attention.key.") ->
+        {1, block_index, 1, path}
+
+      String.contains?(path, ".self_attention.value.") ->
+        {1, block_index, 2, path}
+
+      String.contains?(path, ".self_attention.output.") ->
+        {1, block_index, 3, path}
+
+      String.contains?(path, ".ffn.gate.") ->
+        {1, block_index, 4, path}
+
+      String.contains?(path, ".ffn.intermediate.") ->
+        {1, block_index, 5, path}
+
+      String.contains?(path, ".ffn.output.") ->
+        {1, block_index, 6, path}
+
+      true ->
+        {1, block_index, 9, path}
+    end
+  end
+
+  defp decoder_block_index(path) do
+    case Regex.run(~r/\bdecoder\.blocks\.(\d+)\./, path) do
+      [_, block] -> String.to_integer(block)
+      _ -> 0
+    end
+  end
 
   defp format_path(path) do
     path

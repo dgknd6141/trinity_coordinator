@@ -1,0 +1,128 @@
+{
+  "source_vector_sha256": "b9bf105b818cc32f3a25877b75adce1ec65e5201d524b929d217eb045a6ffa05",
+  "selected_tensor_count": 9,
+  "selected_singular_value_count": 9216,
+  "selected_tensors": [
+    {
+      "source_name": "model.embed_tokens.weight",
+      "elixir_name": "embedder.token_embedding.kernel",
+      "shape": [
+        151936,
+        1024
+      ],
+      "singular_values": 1024,
+      "offset_start": 0,
+      "offset_end": 1024
+    },
+    {
+      "source_name": "model.layers.26.self_attn.q_proj.weight",
+      "elixir_name": "decoder.blocks.26.self_attention.query.kernel",
+      "shape": [
+        2048,
+        1024
+      ],
+      "singular_values": 1024,
+      "offset_start": 1024,
+      "offset_end": 2048
+    },
+    {
+      "source_name": "model.layers.26.self_attn.k_proj.weight",
+      "elixir_name": "decoder.blocks.26.self_attention.key.kernel",
+      "shape": [
+        1024,
+        1024
+      ],
+      "singular_values": 1024,
+      "offset_start": 2048,
+      "offset_end": 3072
+    },
+    {
+      "source_name": "model.layers.26.self_attn.v_proj.weight",
+      "elixir_name": "decoder.blocks.26.self_attention.value.kernel",
+      "shape": [
+        1024,
+        1024
+      ],
+      "singular_values": 1024,
+      "offset_start": 3072,
+      "offset_end": 4096
+    },
+    {
+      "source_name": "model.layers.26.self_attn.o_proj.weight",
+      "elixir_name": "decoder.blocks.26.self_attention.output.kernel",
+      "shape": [
+        1024,
+        2048
+      ],
+      "singular_values": 1024,
+      "offset_start": 4096,
+      "offset_end": 5120
+    },
+    {
+      "source_name": "model.layers.26.mlp.gate_proj.weight",
+      "elixir_name": "decoder.blocks.26.ffn.gate.kernel",
+      "shape": [
+        3072,
+        1024
+      ],
+      "singular_values": 1024,
+      "offset_start": 5120,
+      "offset_end": 6144
+    },
+    {
+      "source_name": "model.layers.26.mlp.up_proj.weight",
+      "elixir_name": "decoder.blocks.26.ffn.intermediate.kernel",
+      "shape": [
+        3072,
+        1024
+      ],
+      "singular_values": 1024,
+      "offset_start": 6144,
+      "offset_end": 7168
+    },
+    {
+      "source_name": "model.layers.26.mlp.down_proj.weight",
+      "elixir_name": "decoder.blocks.26.ffn.output.kernel",
+      "shape": [
+        1024,
+        3072
+      ],
+      "singular_values": 1024,
+      "offset_start": 7168,
+      "offset_end": 8192
+    },
+    {
+      "source_name": "lm_head.weight",
+      "elixir_name": "language_modeling_head.output.kernel",
+      "shape": [
+        151936,
+        1024
+      ],
+      "singular_values": 1024,
+      "offset_start": 8192,
+      "offset_end": 9216
+    }
+  ],
+  "sample_adapted_tensor": {
+    "source_name": "model.layers.26.mlp.gate_proj.weight",
+    "elixir_name": "decoder.blocks.26.ffn.gate.kernel",
+    "offset_start": 5120,
+    "offset_end": 6144,
+    "source_shape": [
+      3072,
+      1024
+    ],
+    "reconstructed_shape": [
+      1024,
+      3072
+    ],
+    "sample_max_abs_error_zero_offsets": 1.1920928955078125e-06,
+    "sample_reconstructed_shape": [
+      1024,
+      3072
+    ],
+    "sample_reconstructed_bf16_sha256": "600be6ab0f5a34325b9857182ccb5fce5971549a0ce8588cdacc992eda54014c",
+    "sample_reconstructed_bf16_max": 0.859311044216156,
+    "sample_reconstructed_bf16_min": -1.1435850858688354
+  }
+}

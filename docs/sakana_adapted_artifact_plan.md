@@ -95,9 +95,8 @@ Validated in this cycle:
 
 Open questions carried forward:
 
-- Whether the exact Sakana Python parity checks (order, embeddings, and scalar
-  logits comparisons) are available in a deterministic fixture or need a small
-  scripted reference artifact.
+- Exact Python parity checks are now backed by a checked-in reference manifest
+  fixture and executable parity assertions in `svd_test.exs`.
 
 ## Non-Negotiable Design Rules
 
@@ -760,18 +759,18 @@ Required change:
 
 ### 9. Add Parity Checks
 
-- [ ] Inspect Sakana Python tensor order.
-- [ ] Confirm embeddings and LM head behavior.
-- [ ] Compare offset spans.
-- [ ] Compare one adapted tensor numerically.
-- [ ] Compare router head logits where practical.
+- [x] Inspect Sakana Python tensor order.
+- [x] Confirm embeddings and LM head behavior.
+- [x] Compare offset spans.
+- [x] Compare one adapted tensor numerically.
+- [x] Compare router head logits where practical.
 
 ### 10. Update Documentation
 
 - [x] Update `README.md` to point to export command as canonical.
 - [x] Update `docs/elixir_svd_decomposition.md` to separate math/export/runtime.
 - [x] Update `docs/production_qwen_slm_profile.md` for adapted profile.
-- [ ] Document export run time after first successful canonical export.
+- [x] Document export run time after first successful canonical export.
 - [x] Document resume/failure recovery.
 
 ## Main Roadmap To A Functional System

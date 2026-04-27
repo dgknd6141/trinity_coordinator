@@ -6,6 +6,8 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
   alias TrinityCoordinator.Sakana.SVD
 
   @router_vector_path "priv/sakana_trinity/artifacts/trinity_router_es_vector.safetensors"
+  @python_reference_manifest_path "priv/sakana_trinity/reference/sakana_python_reference_manifest.json"
+  @qwen_smoke_tensor_path "decoder.blocks.26.self_attention.query.kernel"
 
   test "decomposes and reconstructs a matrix with Sakana normalization" do
     matrix =
@@ -135,6 +137,8 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
   end
 
   @tag :qwen
+  @tag :slow_qwen_svd
+  @tag timeout: 30 * 60 * 1000
   test "selects Qwen SVF tensors for Sakana layer 26 on CUDA" do
     Runtime.put_cuda_backend!()
 
@@ -164,6 +168,8 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
   end
 
   @tag :qwen
+  @tag :slow_qwen_svd
+  @tag timeout: 30 * 60 * 1000
   test "maps a representative Qwen layer 26 tensor to its Sakana scale-offset span on CUDA" do
     Runtime.put_cuda_backend!()
 
@@ -201,6 +207,9 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
   test "exports one Sakana-selected Qwen tensor and validates partial artifacts" do
     Runtime.put_cuda_backend!()
 
+    assert {:ok, {model_info, _tokenizer}} = SLMProfile.load_profile(:qwen_coordinator)
+    smoke_tensor_index = qwen_smoke_tensor_index!(model_info)
+
     out_dir =
       Path.join(
         System.tmp_dir!(),
@@ -216,7 +225,7 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
                out_dir: out_dir,
                source_vector_path: @router_vector_path,
                source_vector_tensor: "trinity_router_es_vector",
-               only_index: 1,
+               only_index: smoke_tensor_index,
                force: true,
                skip_existing: false,
                progress: &expensive_svd_progress/1
@@ -257,6 +266,9 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
   test "resume refuses mismatched manifest identity" do
     Runtime.put_cuda_backend!()
 
+    assert {:ok, {model_info, _tokenizer}} = SLMProfile.load_profile(:qwen_coordinator)
+    smoke_tensor_index = qwen_smoke_tensor_index!(model_info)
+
     out_dir =
       Path.join(
         System.tmp_dir!(),
@@ -272,7 +284,7 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
                out_dir: out_dir,
                source_vector_path: @router_vector_path,
                source_vector_tensor: "trinity_router_es_vector",
-               only_index: 1,
+               only_index: smoke_tensor_index,
                force: true,
                skip_existing: false,
                progress: nil
@@ -290,7 +302,7 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
                out_dir: out_dir,
                source_vector_path: @router_vector_path,
                source_vector_tensor: "trinity_router_es_vector",
-               only_index: 1,
+               only_index: smoke_tensor_index,
                resume: true,
                skip_existing: true,
                progress: nil
@@ -307,6 +319,9 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
   test "resume reuses a verified one-tensor checkpoint in partial export" do
     Runtime.put_cuda_backend!()
 
+    assert {:ok, {model_info, _tokenizer}} = SLMProfile.load_profile(:qwen_coordinator)
+    smoke_tensor_index = qwen_smoke_tensor_index!(model_info)
+
     out_dir =
       Path.join(
         System.tmp_dir!(),
@@ -322,7 +337,7 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
                out_dir: out_dir,
                source_vector_path: @router_vector_path,
                source_vector_tensor: "trinity_router_es_vector",
-               only_index: 1,
+               only_index: smoke_tensor_index,
                force: true,
                skip_existing: false,
                progress: &expensive_svd_progress/1
@@ -330,7 +345,7 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
 
     first_entry =
       first_manifest["selected_tensors"]
-      |> Enum.find(&(&1["index"] == 1))
+      |> Enum.find(&(&1["index"] == smoke_tensor_index))
 
     assert first_entry["status"] == "complete"
 
@@ -343,7 +358,7 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
                out_dir: out_dir,
                source_vector_path: @router_vector_path,
                source_vector_tensor: "trinity_router_es_vector",
-               only_index: 1,
+               only_index: smoke_tensor_index,
                resume: true,
                skip_existing: true,
                progress: &expensive_svd_progress/1
@@ -351,7 +366,7 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
 
     second_entry =
       second_manifest["selected_tensors"]
-      |> Enum.find(&(&1["index"] == 1))
+      |> Enum.find(&(&1["index"] == smoke_tensor_index))
 
     assert second_entry["status"] == "complete"
 
@@ -362,6 +377,9 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
   @tag timeout: 30 * 60 * 1000
   test "resume refuses to reuse a checkpoint with a checksum mismatch" do
     Runtime.put_cuda_backend!()
+
+    assert {:ok, {model_info, _tokenizer}} = SLMProfile.load_profile(:qwen_coordinator)
+    smoke_tensor_index = qwen_smoke_tensor_index!(model_info)
 
     out_dir =
       Path.join(
@@ -378,7 +396,7 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
                out_dir: out_dir,
                source_vector_path: @router_vector_path,
                source_vector_tensor: "trinity_router_es_vector",
-               only_index: 1,
+               only_index: smoke_tensor_index,
                force: true,
                skip_existing: false,
                progress: &expensive_svd_progress/1
@@ -386,7 +404,7 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
 
     first_entry =
       first_manifest["selected_tensors"]
-      |> Enum.find(&(&1["index"] == 1))
+      |> Enum.find(&(&1["index"] == smoke_tensor_index))
 
     assert first_entry["status"] == "complete"
 
@@ -414,7 +432,7 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
                out_dir: out_dir,
                source_vector_path: @router_vector_path,
                source_vector_tensor: "trinity_router_es_vector",
-               only_index: 1,
+               only_index: smoke_tensor_index,
                resume: true,
                skip_existing: true,
                progress: &expensive_svd_progress/1
@@ -422,7 +440,7 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
 
     second_entry =
       second_manifest["selected_tensors"]
-      |> Enum.find(&(&1["index"] == 1))
+      |> Enum.find(&(&1["index"] == smoke_tensor_index))
 
     final_checksum = Artifact.file_sha256!(checkpoint_path)
 
@@ -436,6 +454,9 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
   @tag timeout: 30 * 60 * 1000
   test "force overwrites existing output directory for partial export" do
     Runtime.put_cuda_backend!()
+
+    assert {:ok, {model_info, _tokenizer}} = SLMProfile.load_profile(:qwen_coordinator)
+    smoke_tensor_index = qwen_smoke_tensor_index!(model_info)
 
     out_dir =
       Path.join(
@@ -452,7 +473,7 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
                out_dir: out_dir,
                source_vector_path: @router_vector_path,
                source_vector_tensor: "trinity_router_es_vector",
-               only_index: 1,
+               only_index: smoke_tensor_index,
                force: true,
                skip_existing: false,
                progress: &expensive_svd_progress/1
@@ -464,10 +485,14 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
   end
 
   @tag :qwen
+  @tag :expensive_qwen_svd
+  @tag :slow_qwen_svd
+  @tag timeout: 30 * 60 * 1000
   test "selected Qwen tensor manifest metadata matches live model selection" do
     Runtime.put_cuda_backend!()
 
     assert {:ok, {model_info, _tokenizer}} = SLMProfile.load_profile(:qwen_coordinator)
+    smoke_tensor_index = qwen_smoke_tensor_index!(model_info)
 
     selected =
       SVD.decomposable_tensor_entries(
@@ -490,7 +515,7 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
                out_dir: out_dir,
                source_vector_path: @router_vector_path,
                source_vector_tensor: "trinity_router_es_vector",
-               only_index: 1,
+               only_index: smoke_tensor_index,
                force: true,
                skip_existing: false,
                progress: nil
@@ -517,6 +542,143 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
   end
 
   @tag :qwen
+  @tag :slow_qwen_svd
+  @tag timeout: 30 * 60 * 1000
+  test "selected Qwen tensor order and span match the Sakana Python reference" do
+    Runtime.put_cuda_backend!()
+
+    assert {:ok, {model_info, _tokenizer}} = SLMProfile.load_profile(:qwen_coordinator)
+
+    selected = qwen_selected_tensors(model_info)
+    reference = python_reference_manifest!()
+
+    reference_paths = Enum.map(reference["selected_tensors"], & &1["elixir_name"])
+    actual_paths = Enum.map(selected, & &1.path)
+
+    assert actual_paths == reference_paths
+    assert Enum.at(reference_paths, 0) == "embedder.token_embedding.kernel"
+    assert Enum.at(reference_paths, -1) == "language_modeling_head.output.kernel"
+    assert "embedder.token_embedding.kernel" in actual_paths
+    assert "language_modeling_head.output.kernel" in actual_paths
+
+    Enum.each(reference["selected_tensors"], fn reference_entry ->
+      path = reference_entry["elixir_name"]
+      selected_entry = Enum.find(selected, &(&1.path == path))
+      assert selected_entry
+      selected_shape = Nx.shape(selected_entry.tensor) |> Tuple.to_list()
+      reference_shape = reference_entry["shape"]
+
+      assert selected_shape == reference_shape or selected_shape == Enum.reverse(reference_shape)
+
+      assert Tuple.to_list(Nx.shape(selected_entry.tensor)) |> Enum.min() ==
+               reference_entry["singular_values"]
+
+      assert selected_tensor_offset_start(selected, path) == reference_entry["offset_start"]
+      expected_end = reference_entry["offset_start"] + reference_entry["singular_values"]
+      assert selected_tensor_offset_end(selected, path) == expected_end
+    end)
+  end
+
+  @tag :qwen
+  @tag :slow_qwen_svd
+  @tag timeout: 30 * 60 * 1000
+  test "reconstructs a Python reference tensor sample with expected hash" do
+    Runtime.put_cuda_backend!()
+
+    assert {:ok, {model_info, _tokenizer}} = SLMProfile.load_profile(:qwen_coordinator)
+
+    vector = SVD.load_router_vector!(@router_vector_path)
+    split = SVD.split_router_vector(vector, 9216, 1024, 10)
+    selected = qwen_selected_tensors(model_info)
+    reference = python_reference_manifest!()
+    sample = reference["sample_adapted_tensor"]
+    target_path = sample["elixir_name"]
+    sample_entry = Enum.find(selected, &(&1.path == target_path))
+    assert sample_entry
+
+    offset_start = sample["offset_start"]
+    singular_values = sample["offset_end"] - sample["offset_start"]
+
+    offsets =
+      Nx.slice(split.scale_offsets, [offset_start], [singular_values])
+      |> Nx.as_type(Nx.type(sample_entry.tensor))
+
+    sample_entry_shape = Tuple.to_list(Nx.shape(sample_entry.tensor))
+    reconstruction_shape = sample["source_shape"]
+
+    sample_entry_tensor =
+      if sample_entry_shape == reconstruction_shape do
+        sample_entry.tensor
+      else
+        Nx.transpose(sample_entry.tensor)
+      end
+
+    decomposition = SVD.decompose_tensor(sample_entry_tensor)
+
+    zero_offsets = Nx.broadcast(0.0, singular_values) |> Nx.as_type(Nx.type(sample_entry_tensor))
+    zero_reconstruct = SVD.reconstruct(decomposition, zero_offsets)
+
+    sample_reconstruct =
+      SVD.reconstruct(decomposition, offsets |> Nx.as_type(Nx.type(sample_entry_tensor)))
+      |> Nx.as_type(:bf16)
+
+    zero_error_tensor =
+      if Tuple.to_list(Nx.shape(sample_entry_tensor)) == Tuple.to_list(Nx.shape(zero_reconstruct)) do
+        zero_reconstruct
+      else
+        Nx.transpose(zero_reconstruct)
+      end
+
+    zero_error =
+      Nx.subtract(zero_error_tensor, sample_entry_tensor)
+      |> Nx.abs()
+      |> Nx.reduce_max()
+      |> Nx.to_number()
+
+    assert zero_error < 1.0
+    assert zero_error < sample["sample_reconstructed_bf16_max"] * 2
+
+    sample_reconstruct_for_hash =
+      if Tuple.to_list(Nx.shape(sample_reconstruct)) == sample["sample_reconstructed_shape"] do
+        sample_reconstruct
+      else
+        Nx.transpose(sample_reconstruct)
+      end
+
+    assert sample["sample_reconstructed_shape"] ==
+             Tuple.to_list(Nx.shape(sample_reconstruct_for_hash))
+
+    assert tensor_sha256!(sample_reconstruct_for_hash) ==
+             sample["sample_reconstructed_bf16_sha256"]
+  end
+
+  @tag :qwen
+  @tag :slow_qwen_svd
+  @tag timeout: 30 * 60 * 1000
+  test "router head logits match direct projection of split router head weights" do
+    Runtime.put_cuda_backend!()
+
+    vector = SVD.load_router_vector!(@router_vector_path)
+    split = SVD.split_router_vector(vector, 9216, 1024, 10)
+    hidden_vector = Nx.iota({1, 1024}, type: :f32)
+
+    direct_logits = Nx.dot(hidden_vector, Nx.transpose(split.head_weights)) |> Nx.as_type(:f32)
+
+    model = CoordinationHead.build_model(1024, 7, 3)
+    {init_fn, _predict_fn} = Axon.build(model)
+    params = init_fn.(Nx.template({1, 1024}, :f32), Axon.ModelState.empty())
+    params = SVD.put_linear_head_weights(params, split.head_weights)
+
+    route = CoordinationHead.route(model, params, hidden_vector, 7, 3)
+
+    assert Nx.shape(route.logits) == {1, 10}
+    assert Nx.all_close(route.logits, direct_logits, atol: 1.0e-5, rtol: 1.0e-5)
+  end
+
+  @tag :qwen
+  @tag :expensive_qwen_svd
+  @tag :slow_qwen_svd
+  @tag timeout: 30 * 60 * 1000
   @tag :qwen_sakana_adapted
   test "patches qwen model params from a one-tensor resumed artifact without recomputing SVD" do
     Runtime.put_cuda_backend!()
@@ -527,6 +689,9 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
         "trinity_sakana_qwen_patch_#{System.unique_integer([:positive])}"
       )
 
+    assert {:ok, {model_info, _tokenizer}} = SLMProfile.load_profile(:qwen_coordinator)
+    smoke_tensor_index = qwen_smoke_tensor_index!(model_info)
+
     on_exit(fn ->
       File.rm_rf(out_dir)
     end)
@@ -536,19 +701,17 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
                out_dir: out_dir,
                source_vector_path: @router_vector_path,
                source_vector_tensor: "trinity_router_es_vector",
-               only_index: 1,
+               only_index: smoke_tensor_index,
                force: true,
                skip_existing: false,
                progress: nil
              )
 
     index_entry =
-      Enum.find(full_manifest["selected_tensors"], &(&1["index"] == 1))
+      Enum.find(full_manifest["selected_tensors"], &(&1["index"] == smoke_tensor_index))
 
     assert index_entry["status"] == "complete"
     assert is_list(index_entry["segments"])
-
-    assert {:ok, {model_info, _tokenizer}} = SLMProfile.load_profile(:qwen_coordinator)
 
     manifest = Map.put(full_manifest, "selected_tensors", [index_entry])
     manifest = Map.put(manifest, "selected_tensor_count", 1)
@@ -576,9 +739,15 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
   end
 
   @tag :qwen
+  @tag :expensive_qwen_svd
+  @tag :slow_qwen_svd
+  @tag timeout: 30 * 60 * 1000
   @tag :qwen_sakana_adapted
   test "routes a real Qwen hidden vector through the persisted Sakana router head on CUDA" do
     Runtime.put_cuda_backend!()
+
+    assert {:ok, {model_info, tokenizer}} = SLMProfile.load_profile(:qwen_coordinator)
+    smoke_tensor_index = qwen_smoke_tensor_index!(model_info)
 
     out_dir =
       Path.join(
@@ -595,7 +764,7 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
                out_dir: out_dir,
                source_vector_path: @router_vector_path,
                source_vector_tensor: "trinity_router_es_vector",
-               only_index: 1,
+               only_index: smoke_tensor_index,
                force: true,
                skip_existing: false,
                progress: nil
@@ -608,8 +777,6 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
     {init_fn, _predict_fn} = Axon.build(model)
     params = init_fn.(Nx.template({1, 1024}, :f32), Axon.ModelState.empty())
     params = SVD.put_linear_head_weights(params, head_weights)
-
-    assert {:ok, {model_info, tokenizer}} = SLMProfile.load_profile(:qwen_coordinator)
 
     assert {:ok, metadata} =
              TrinityCoordinator.Extractor.extract_penultimate_hidden_state_with_metadata(
@@ -624,6 +791,74 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
     assert Runtime.tensor_backend(metadata.vector) =~ "EXLA.Backend<cuda:"
     assert Runtime.tensor_backend(route.logits) =~ "EXLA.Backend<cuda:"
     assert Nx.shape(route.logits) == {1, 10}
+  end
+
+  defp qwen_selected_tensors(model_info) do
+    SVD.decomposable_tensor_entries(
+      model_info.params,
+      path_filter: SVD.layer_index_filter([26])
+    )
+  end
+
+  defp qwen_smoke_tensor_index!(model_info) do
+    qwen_selected_tensors(model_info)
+    |> Enum.with_index(1)
+    |> Enum.find_value(fn {entry, index} ->
+      if selected_path(entry) == @qwen_smoke_tensor_path do
+        index
+      end
+    end)
+    |> case do
+      nil -> raise ArgumentError, "expected #{@qwen_smoke_tensor_path} in selected tensors"
+      index -> index
+    end
+  end
+
+  defp python_reference_manifest! do
+    @python_reference_manifest_path
+    |> File.read!()
+    |> Jason.decode!()
+  end
+
+  defp tensor_sha256!(tensor), do: Artifact.tensor_sha256(tensor)
+
+  defp selected_tensor_offset_start(selected_tensors, target_path) do
+    selected_tensors
+    |> Enum.reduce_while({0, false}, fn entry, {offset, _found} ->
+      if selected_path(entry) == target_path do
+        {:halt, {offset, true}}
+      else
+        {:cont, {offset + tensor_singular_values(entry), false}}
+      end
+    end)
+    |> case do
+      {offset, true} -> offset
+      {_, false} -> raise ArgumentError, "path #{inspect(target_path)} not selected"
+    end
+  end
+
+  defp selected_tensor_offset_end(selected_tensors, target_path) do
+    selected_tensor_offset_start(selected_tensors, target_path) +
+      selected_tensor_singular_values!(selected_tensors, target_path)
+  end
+
+  defp selected_tensor_singular_values!(selected_tensors, target_path) do
+    Enum.find_value(selected_tensors, fn entry ->
+      if selected_path(entry) == target_path do
+        tensor_singular_values(entry)
+      end
+    end) || raise(ArgumentError, "path #{inspect(target_path)} not selected")
+  end
+
+  defp tensor_singular_values(entry) do
+    entry.tensor
+    |> Nx.shape()
+    |> Tuple.to_list()
+    |> Enum.min()
+  end
+
+  defp selected_path(entry) do
+    Map.get(entry, :path) || Map.get(entry, "path")
   end
 
   defp fetch_tensor!(%Axon.ModelState{} = container, segments) when is_list(segments) do

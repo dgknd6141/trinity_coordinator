@@ -479,7 +479,8 @@ Fast tests:
 XLA_TARGET=cuda12 mix test
 ```
 
-This excludes `:integration` and `:expensive_qwen_svd` by default.
+This excludes `:integration`, `:expensive_qwen_svd`, and `:slow_qwen_svd` by
+default.
 
 Integration tests load the tiny Hugging Face model and assert CUDA-backed
 tensors where applicable:
@@ -494,6 +495,10 @@ Qwen/Sakana focused gates:
 XLA_TARGET=cuda12 mix test --only qwen --trace
 XLA_TARGET=cuda12 mix test test/trinity_coordinator/sakana/svd_test.exs --only qwen --exclude expensive_qwen_svd --trace
 ```
+
+The first canonical export run can take multiple minutes with CUDA warmup. After a
+successful canonical export, repeated runs with the checkpoint cache should be
+faster.
 
 Full opt-in SVF reconstruction/import gate:
 

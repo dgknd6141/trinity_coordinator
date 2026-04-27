@@ -804,7 +804,10 @@ defmodule TrinityCoordinator.Sakana.Artifact do
   defp normalize_type(value), do: inspect(value)
 
   defp normalize_identity_value(nil), do: nil
-  defp normalize_identity_value(value) when is_list(value), do: Enum.map(value, &normalize_identity_value/1)
+
+  defp normalize_identity_value(value) when is_list(value),
+    do: Enum.map(value, &normalize_identity_value/1)
+
   defp normalize_identity_value(value) when is_tuple(value), do: Tuple.to_list(value)
   defp normalize_identity_value(value) when is_map(value), do: normalize_identity_value_map(value)
   defp normalize_identity_value(value) when is_atom(value), do: Atom.to_string(value)

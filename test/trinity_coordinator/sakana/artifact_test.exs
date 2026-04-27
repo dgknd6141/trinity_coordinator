@@ -116,6 +116,66 @@ defmodule TrinityCoordinator.Sakana.ArtifactTest do
     assert Artifact.trace_metadata(%{}) == %{}
   end
 
+  test "identity comparison ignores ephemeral tensor statuses" do
+    expected = %{
+      "artifact_version" => 1,
+      "base_model_repo" => "Qwen/Qwen3-0.6B",
+      "bumblebee_module" => "Bumblebee.Text.Qwen3",
+      "architecture" => "for_causal_language_modeling",
+      "xla_target" => "cuda12",
+      "export_backend" => "elixir_nx_exla_cuda",
+      "source_vector_path" =>
+        "priv/sakana_trinity/artifacts/trinity_router_es_vector.safetensors",
+      "source_vector_tensor" => "trinity_router_es_vector",
+      "source_vector_sha256" => "abc123",
+      "selected_tensors" => [
+        %{
+          "path" => "decoder.blocks.0.test.weight",
+          "artifact_key" => "decoder.blocks.0.test.weight",
+          "shape" => [4, 4],
+          "singular_values" => 4,
+          "type" => "{:f, 32}",
+          "segments" => ["decoder", "blocks", 0, "test", "weight"],
+          "status" => "pending",
+          "checkpoint_path" => "checkpoints/0001_decoder.blocks.0.test.weight.safetensors",
+          "checkpoint_sha256" => nil,
+          "decompose_elapsed_ms" => nil,
+          "reconstruct_elapsed_ms" => nil,
+          "u_backend" => nil,
+          "s_backend" => nil,
+          "v_backend" => nil,
+          "adapted_backend" => nil,
+          "error" => nil
+        }
+      ],
+      "selected_singular_value_count" => 4,
+      "scale_offset_count" => 9_216,
+      "router_head_shape" => [10, 1_024],
+      "selected_tensor_count" => 1,
+      "source_vector_shape" => [19_456]
+    }
+
+    observed =
+      Map.put(expected, "selected_tensors", [
+        expected["selected_tensors"]
+        |> List.first()
+        |> Map.put("status", "running")
+        |> Map.put("error", "interrupted")
+        |> Map.put("checkpoint_sha256", "different")
+      ])
+
+    assert Artifact.identity_matches?(expected, observed)
+
+    observed_mismatch =
+      Map.put(observed, "selected_tensors", [
+        observed["selected_tensors"]
+        |> List.first()
+        |> Map.put("singular_values", 3)
+      ])
+
+    refute Artifact.identity_matches?(expected, observed_mismatch)
+  end
+
   defp unique_tmp_dir do
     Path.join(System.tmp_dir!(), "#{@tmp_prefix}_#{System.unique_integer([:positive])}")
     |> then(fn path ->
