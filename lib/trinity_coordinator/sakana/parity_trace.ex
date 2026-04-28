@@ -77,7 +77,7 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
     python_all_selected_stage_tensors =
       python_report
       |> python_stage_file(:all_selected)
-      |> maybe_read_safetensors()
+      |> maybe_read_safetensors(lazy: true)
 
     vector = SVD.load_router_vector!(opts[:router_vector_path])
     split = SVD.split_router_vector(vector, @scale_count, @hidden_size, @output_count)
@@ -311,8 +311,8 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
     scale_path = Path.join(components_dir, @scale_file)
 
     if File.exists?(component_path) and File.exists?(scale_path) do
-      components = Safetensors.read!(component_path)
-      scales = Safetensors.read!(scale_path)
+      components = read_safetensors_host!(component_path, lazy: true)
+      scales = read_safetensors_host!(scale_path, lazy: true)
       entries = semantic_entries(sample, context)
 
       compute_targets =
@@ -925,17 +925,30 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
       get_in(report, ["inputs", "all_selected_stage_tensor_file"])
   end
 
-  defp maybe_read_safetensors(nil), do: nil
-  defp maybe_read_safetensors(""), do: nil
+  defp maybe_read_safetensors(path, opts \\ [])
+  defp maybe_read_safetensors(nil, _opts), do: nil
+  defp maybe_read_safetensors("", _opts), do: nil
 
-  defp maybe_read_safetensors(path) when is_binary(path) do
+  defp maybe_read_safetensors(path, opts) when is_binary(path) do
     if File.exists?(path) do
-      path
-      |> Safetensors.read!()
-      |> Map.new(fn {key, tensor} -> {key, host_snapshot(tensor)} end)
+      read_safetensors_host!(path, opts)
     else
       nil
     end
+  end
+
+  defp read_safetensors_host!(path, opts) do
+    opts = Keyword.validate!(opts, lazy: false)
+
+    Nx.with_default_backend(Nx.BinaryBackend, fn ->
+      tensors = Safetensors.read!(path, lazy: opts[:lazy])
+
+      if opts[:lazy] do
+        tensors
+      else
+        Map.new(tensors, fn {key, tensor} -> {key, materialize_host_tensor(tensor)} end)
+      end
+    end)
   end
 
   defp semantic_compute_targets(_compute_backend, true, false) do
@@ -1191,12 +1204,25 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
   defp fetch_tensor!(map, key) do
     case Map.fetch(map, key) do
       {:ok, %Nx.Tensor{} = tensor} ->
-        tensor
+        materialize_host_tensor(tensor)
+
+      {:ok, lazy_tensor} ->
+        materialize_host_tensor(lazy_tensor)
 
       _ ->
         raise ArgumentError,
               "missing tensor #{inspect(key)}; available keys: #{inspect(Map.keys(map))}"
     end
+  end
+
+  defp materialize_host_tensor(%Nx.Tensor{} = tensor), do: host_snapshot(tensor)
+
+  defp materialize_host_tensor(lazy_tensor) do
+    Nx.with_default_backend(Nx.BinaryBackend, fn ->
+      lazy_tensor
+      |> Nx.to_tensor()
+      |> host_snapshot()
+    end)
   end
 
   defp sanitize_python_key(source_name) do
