@@ -67,7 +67,9 @@ defmodule TrinityCoordinator.MixProject do
         "README.md",
         "CHANGELOG.md",
         "LICENSE",
-        "assets"
+        "assets",
+        "guides",
+        "docs"
       ]
     ]
   end
@@ -78,8 +80,16 @@ defmodule TrinityCoordinator.MixProject do
       source_ref: "v#{@version}",
       source_url: "https://github.com/nshkrdotcom/trinity_coordinator",
       extras: [
-        "CHANGELOG.md",
         "README.md",
+        "guides/onboarding.md",
+        "guides/current_direction.md",
+        "guides/system_architecture.md",
+        "guides/python_parity_reconstruction.md",
+        "guides/stage_checks_and_tolerances.md",
+        "guides/artifacts_and_export.md",
+        "guides/service_buildout.md",
+        "guides/operations_qc.md",
+        "guides/troubleshooting.md",
         "docs/sakana_svd_byte_match_rigor_plan.md",
         "docs/sakana_svd_parity_debug_checklist.md",
         "docs/elixir_svd_decomposition.md",
@@ -89,11 +99,17 @@ defmodule TrinityCoordinator.MixProject do
         "docs/trace_persistence.md",
         "docs/configurable_provider_pools.md",
         "docs/benchmark_harnesses.md",
-        "docs/provider_smoke_tests.md"
+        "docs/provider_smoke_tests.md",
+        "CHANGELOG.md",
+        "LICENSE"
       ],
       groups_for_extras: [
-        Guides:
-          ~r/README|sakana_svd_byte_match_rigor_plan|sakana_svd_parity_debug_checklist|elixir_svd_decomposition|production_qwen_slm_profile|sep_cma_es_training|coordination_head_variants|trace_persistence|configurable_provider_pools|benchmark_harnesses|provider_smoke_tests/
+        Project: ~r/^(README|CHANGELOG|LICENSE)/,
+        "Start Here": ~r/guides\/(onboarding|current_direction|system_architecture)\.md/,
+        "Parity Guides":
+          ~r/guides\/(python_parity_reconstruction|stage_checks_and_tolerances|artifacts_and_export)\.md/,
+        "Service Buildout": ~r/guides\/(service_buildout|operations_qc|troubleshooting)\.md/,
+        "Reference Notes": ~r/docs\//
       ],
       groups_for_modules: [
         Core: [

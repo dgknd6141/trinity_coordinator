@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-04-28
+
+- Reframed the public documentation around the active Qwen/Sakana parity and
+  service-foundation direction.
+- Added the `guides/` documentation set covering onboarding, direction,
+  architecture, Python parity reconstruction, stage tolerances, artifacts,
+  service buildout, operations, and troubleshooting.
+- Updated ExDoc configuration so README, guides, reference notes, changelog, and
+  license render as a structured HexDocs menu.
+- Clarified that the old experiment-reproduction lane is shelved and planned
+  for later removal or archival after the parity/service path is stable.
+- Kept final Python byte matching as an aspirational target while documenting
+  `--strict-stage-tolerances` as the required functional correctness gate.
+
 ## 2026-04-21
 
 - P1: Added a repo-local Gemma server helper and optional SSoT JSON schema for
