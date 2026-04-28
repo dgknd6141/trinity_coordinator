@@ -12,7 +12,7 @@ defmodule TrinityCoordinator.Sakana.Head do
 
   @type build_result :: %{
           required(:model) => Axon.t(),
-          required(:params) => Axon.ModelState.t(),
+          required(:params) => struct(),
           required(:hidden_size) => pos_integer(),
           required(:output_count) => pos_integer(),
           required(:num_agents) => pos_integer(),
@@ -28,7 +28,7 @@ defmodule TrinityCoordinator.Sakana.Head do
     * `:backend` - optional backend for initialized params, e.g. `{EXLA.Backend, client: :cuda}`.
     * `:model_opts` - forwarded to `CoordinationHead.build_model/4`.
   """
-  @spec build_routing_state(Nx.Tensor.t(), keyword()) :: {:ok, build_result()} | {:error, term()}
+  @spec build_routing_state(term(), keyword()) :: {:ok, build_result()} | {:error, term()}
   def build_routing_state(head_weights, opts \\ [])
 
   def build_routing_state(%Nx.Tensor{} = head_weights, opts) when is_list(opts) do
@@ -125,31 +125,29 @@ defmodule TrinityCoordinator.Sakana.Head do
   defp infer_head_dimensions(_head_weights, num_roles),
     do: {:error, {:invalid_num_roles, num_roles}}
 
-  defp resolve_map_key!(container, key) when is_map(container) do
-    cond do
-      Map.has_key?(container, key) ->
-        key
-
-      is_binary(key) and existing_atom_key?(container, key) ->
-        String.to_existing_atom(key)
-
-      is_atom(key) and Map.has_key?(container, Atom.to_string(key)) ->
-        Atom.to_string(key)
-
-      true ->
-        raise ArgumentError, "missing map key #{inspect(key)}"
+  defp resolve_map_key!(container, key) when is_map(container) and is_binary(key) do
+    if Map.has_key?(container, key) do
+      key
+    else
+      existing_atom_key(container, key) || raise_missing_map_key!(key)
     end
   end
 
-  defp existing_atom_key?(container, key) do
-    atom =
-      try do
-        String.to_existing_atom(key)
-      rescue
-        ArgumentError -> nil
-      end
+  defp resolve_map_key!(container, key) when is_map(container) do
+    if Map.has_key?(container, key) do
+      key
+    else
+      raise_missing_map_key!(key)
+    end
+  end
 
-    atom && Map.has_key?(container, atom)
+  defp raise_missing_map_key!(key), do: raise(ArgumentError, "missing map key #{inspect(key)}")
+
+  defp existing_atom_key(container, key) do
+    atom = String.to_existing_atom(key)
+    if Map.has_key?(container, atom), do: atom
+  rescue
+    ArgumentError -> nil
   end
 
   defp maybe_cast(tensor, target_type, true), do: Nx.as_type(tensor, target_type)

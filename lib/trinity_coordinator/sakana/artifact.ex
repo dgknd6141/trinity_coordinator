@@ -607,135 +607,58 @@ defmodule TrinityCoordinator.Sakana.Artifact do
   end
 
   defp load_safetensor_tensor!(path, key) when is_binary(path) do
-    tensor = Safetensors.read!(path)[normalize_string_key(key)]
+    case Safetensors.read!(path)[normalize_string_key(key)] do
+      %Nx.Tensor{} = tensor ->
+        tensor
 
-    unless is_nil(tensor) do
-      tensor
-    else
-      raise ArgumentError, "missing tensor #{inspect(key)} in #{inspect(path)}"
-    end
-  end
-
-  defp patch_param!(container, [segment], tensor, _path) do
-    cond do
-      is_map(container) ->
-        resolved = resolve_map_key(container, segment)
-
-        if resolved do
-          Map.put(container, resolved, tensor)
-        else
-          raise ArgumentError, "missing map key #{inspect(segment)}"
-        end
-
-      is_list(container) and is_integer(segment) ->
-        if segment < 0 or segment >= length(container) do
-          raise ArgumentError, "missing list index #{inspect(segment)}"
-        end
-
-        List.update_at(container, segment, fn _ -> tensor end)
-
-      is_tuple(container) and is_integer(segment) ->
-        if segment < 0 or segment >= tuple_size(container) do
-          raise ArgumentError, "missing tuple index #{inspect(segment)}"
-        end
-
-        put_elem(container, segment, tensor)
-
-      true ->
-        raise ArgumentError, "cannot patch tensor at #{inspect(segment)} in #{inspect(container)}"
-    end
-  end
-
-  defp patch_param!(container, [segment | rest], tensor, path) do
-    child =
-      cond do
-        is_map(container) ->
-          resolved = resolve_map_key(container, segment)
-
-          if resolved do
-            Map.fetch!(container, resolved)
-          else
-            raise ArgumentError, "missing map key #{inspect(segment)} for #{inspect(path)}"
-          end
-
-        is_list(container) and is_integer(segment) ->
-          if segment < 0 or segment >= length(container) do
-            raise ArgumentError, "missing list index #{inspect(segment)} for #{inspect(path)}"
-          end
-
-          Enum.at(container, segment)
-
-        is_tuple(container) and is_integer(segment) ->
-          if segment < 0 or segment >= tuple_size(container) do
-            raise ArgumentError, "missing tuple index #{inspect(segment)} for #{inspect(path)}"
-          end
-
-          elem(container, segment)
-
-        true ->
-          raise ArgumentError, "cannot patch #{inspect(path)} into #{inspect(container)}"
-      end
-
-    patched = patch_param!(child, rest, tensor, path)
-
-    cond do
-      is_map(container) ->
-        resolved = resolve_map_key(container, segment)
-        Map.put(container, resolved, patched)
-
-      is_list(container) and is_integer(segment) ->
-        List.update_at(container, segment, fn _ -> patched end)
-
-      is_tuple(container) and is_integer(segment) ->
-        put_elem(container, segment, patched)
-
-      true ->
-        raise ArgumentError, "cannot patch #{inspect(path)} into #{inspect(container)}"
+      nil ->
+        raise ArgumentError, "missing tensor #{inspect(key)} in #{inspect(path)}"
     end
   end
 
   defp patch_param!(_container, [], _tensor, _path),
     do: raise(ArgumentError, "cannot patch empty segment path")
 
-  defp fetch_nested_tensor(container, segments, path) do
-    case segments do
-      [] ->
-        raise ArgumentError, "invalid segment path for #{inspect(path)}"
-
-      [last] when is_list(segments) ->
-        fetch_child!(container, last, path)
-
-      _ ->
-        {head, tail} = List.pop_at(segments, 0)
-        child = fetch_child!(container, head, path)
-        fetch_nested_tensor(child, tail, path)
-    end
+  defp patch_param!(container, [segment], tensor, path) do
+    put_child!(container, segment, tensor, path)
   end
 
-  defp fetch_child!([_ | _] = container, segment, _path) when is_integer(segment) do
-    if segment < 0 or segment >= length(container) do
-      raise ArgumentError, "missing list index #{inspect(segment)}"
-    else
-      Enum.at(container, segment)
-    end
+  defp patch_param!(container, [segment | rest], tensor, path) do
+    container
+    |> fetch_child!(segment, path)
+    |> patch_param!(rest, tensor, path)
+    |> then(&put_child!(container, segment, &1, path))
   end
 
-  defp fetch_child!({} = container, segment, _path) when is_integer(segment) do
-    if segment < 0 or segment >= tuple_size(container) do
-      raise ArgumentError, "missing tuple index #{inspect(segment)}"
-    else
-      elem(container, segment)
-    end
+  defp fetch_nested_tensor(_container, [], path) do
+    raise ArgumentError, "invalid segment path for #{inspect(path)}"
+  end
+
+  defp fetch_nested_tensor(container, segments, path) when is_list(segments) do
+    Enum.reduce(segments, container, fn segment, acc -> fetch_child!(acc, segment, path) end)
   end
 
   defp fetch_child!(container, segment, path) when is_map(container) do
-    resolved = resolve_map_key(container, segment)
-
-    if is_nil(resolved) do
-      raise ArgumentError, "missing path segment #{inspect(segment)} for #{inspect(path)}"
+    case resolve_map_key(container, segment) do
+      nil -> raise ArgumentError, "missing path segment #{inspect(segment)} for #{inspect(path)}"
+      resolved -> Map.fetch!(container, resolved)
     end
+  end
 
-    Map.fetch!(container, resolved)
+  defp fetch_child!(container, segment, _path) when is_list(container) and is_integer(segment) do
+    if valid_index?(segment, length(container)) do
+      Enum.at(container, segment)
+    else
+      raise ArgumentError, "missing list index #{inspect(segment)}"
+    end
+  end
+
+  defp fetch_child!(container, segment, _path) when is_tuple(container) and is_integer(segment) do
+    if valid_index?(segment, tuple_size(container)) do
+      elem(container, segment)
+    else
+      raise ArgumentError, "missing tuple index #{inspect(segment)}"
+    end
   end
 
   defp fetch_child!(container, segment, path) do
@@ -743,37 +666,70 @@ defmodule TrinityCoordinator.Sakana.Artifact do
           "cannot descend into #{inspect(container)} at #{inspect(segment)} for #{inspect(path)}"
   end
 
+  defp put_child!(container, segment, value, path) when is_map(container) do
+    case resolve_map_key(container, segment) do
+      nil -> raise ArgumentError, "missing map key #{inspect(segment)} for #{inspect(path)}"
+      resolved -> Map.put(container, resolved, value)
+    end
+  end
+
+  defp put_child!(container, segment, value, _path)
+       when is_list(container) and is_integer(segment) do
+    if valid_index?(segment, length(container)) do
+      List.update_at(container, segment, fn _ -> value end)
+    else
+      raise ArgumentError, "missing list index #{inspect(segment)}"
+    end
+  end
+
+  defp put_child!(container, segment, value, _path)
+       when is_tuple(container) and is_integer(segment) do
+    if valid_index?(segment, tuple_size(container)) do
+      put_elem(container, segment, value)
+    else
+      raise ArgumentError, "missing tuple index #{inspect(segment)}"
+    end
+  end
+
+  defp put_child!(container, segment, _value, path) do
+    raise ArgumentError,
+          "cannot patch #{inspect(path)} at #{inspect(segment)} in #{inspect(container)}"
+  end
+
+  defp valid_index?(segment, size), do: segment >= 0 and segment < size
+
   defp resolve_map_key(container, key) when is_map(container) do
     cond do
       Map.has_key?(container, key) ->
         key
 
       is_binary(key) ->
-        if atom_key = to_existing_atom?(key) do
-          if Map.has_key?(container, atom_key) do
-            atom_key
-          else
-            nil
-          end
-        else
-          nil
-        end
+        existing_atom_map_key(container, key)
 
-      is_atom(key) and Map.has_key?(container, Atom.to_string(key)) ->
-        Atom.to_string(key)
+      is_atom(key) ->
+        string_map_key(container, key)
 
       true ->
         nil
     end
   end
 
-  defp to_existing_atom?(key) when is_binary(key) do
-    try do
-      String.to_existing_atom(key)
-    rescue
-      ArgumentError ->
-        nil
+  defp existing_atom_map_key(container, key) do
+    case to_existing_atom(key) do
+      nil -> nil
+      atom_key -> if Map.has_key?(container, atom_key), do: atom_key
     end
+  end
+
+  defp string_map_key(container, key) do
+    string_key = Atom.to_string(key)
+    if Map.has_key?(container, string_key), do: string_key
+  end
+
+  defp to_existing_atom(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
   end
 
   defp normalize_segments(nil, path), do: String.split(path, ".")
@@ -801,6 +757,7 @@ defmodule TrinityCoordinator.Sakana.Artifact do
   defp normalize_shape(value) when is_list(value), do: List.to_tuple(value)
   defp normalize_shape(_), do: nil
 
+  defp normalize_type(nil), do: nil
   defp normalize_type(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_type(value) when is_binary(value), do: value
   defp normalize_type(value), do: inspect(value)

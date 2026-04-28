@@ -132,64 +132,50 @@ defmodule TrinityCoordinator.Sakana.ExportSpec do
   end
 
   @doc "Validates an export spec."
-  @spec validate(t()) :: {:ok, t()} | {:error, term()}
+  @spec validate(term()) :: {:ok, t()} | {:error, term()}
   def validate(%__MODULE__{} = spec) do
-    cond do
-      not non_empty_atom?(spec.name) ->
-        {:error, {:invalid_export_spec, :name}}
-
-      not non_empty_string?(spec.base_model_repo) ->
-        {:error, {:invalid_export_spec, :base_model_repo}}
-
-      not is_atom(spec.bumblebee_module) ->
-        {:error, {:invalid_export_spec, :bumblebee_module}}
-
-      not is_atom(spec.architecture) ->
-        {:error, {:invalid_export_spec, :architecture}}
-
-      not pos_int?(spec.hidden_size) ->
-        {:error, {:invalid_export_spec, :hidden_size}}
-
-      not pos_int?(spec.num_agents) ->
-        {:error, {:invalid_export_spec, :num_agents}}
-
-      not pos_int?(spec.num_roles) ->
-        {:error, {:invalid_export_spec, :num_roles}}
-
-      output_count(spec) <= 0 ->
-        {:error, {:invalid_export_spec, :output_count}}
-
-      not non_neg_int?(spec.scale_offset_count) ->
-        {:error, {:invalid_export_spec, :scale_offset_count}}
-
-      not layer_indices?(spec.selected_layer_indices) ->
-        {:error, {:invalid_export_spec, :selected_layer_indices}}
-
-      not non_empty_string?(spec.source_vector_tensor) ->
-        {:error, {:invalid_export_spec, :source_vector_tensor}}
-
-      not non_empty_string?(spec.router_head_tensor_key) ->
-        {:error, {:invalid_export_spec, :router_head_tensor_key}}
-
-      not non_empty_string?(spec.source_vector_path) ->
-        {:error, {:invalid_export_spec, :source_vector_path}}
-
-      not non_empty_string?(spec.out_dir) ->
-        {:error, {:invalid_export_spec, :out_dir}}
-
-      true ->
-        {:ok, spec}
+    spec
+    |> invalid_field()
+    |> case do
+      nil -> {:ok, spec}
+      field -> {:error, {:invalid_export_spec, field}}
     end
   end
 
   def validate(other), do: {:error, {:invalid_export_spec, other}}
 
+  defp invalid_field(%__MODULE__{} = spec) do
+    Enum.find_value(validation_rules(), fn {field, validator} ->
+      value = Map.fetch!(spec, field)
+      if validator.(value), do: nil, else: field
+    end)
+  end
+
+  defp validation_rules do
+    [
+      name: &non_empty_atom?/1,
+      base_model_repo: &non_empty_string?/1,
+      bumblebee_module: &is_atom/1,
+      architecture: &is_atom/1,
+      hidden_size: &pos_int?/1,
+      num_agents: &pos_int?/1,
+      num_roles: &pos_int?/1,
+      scale_offset_count: &non_neg_int?/1,
+      selected_layer_indices: &layer_indices?/1,
+      source_vector_tensor: &non_empty_string?/1,
+      router_head_tensor_key: &non_empty_string?/1,
+      source_vector_path: &non_empty_string?/1,
+      out_dir: &non_empty_string?/1
+    ]
+  end
+
   defp non_empty_atom?(value), do: is_atom(value) and not is_nil(value)
   defp non_empty_string?(value), do: is_binary(value) and String.trim(value) != ""
   defp pos_int?(value), do: is_integer(value) and value > 0
   defp non_neg_int?(value), do: is_integer(value) and value >= 0
+  defp layer_indices?([]), do: true
 
-  defp layer_indices?(values) when is_list(values),
+  defp layer_indices?([_ | _] = values),
     do: Enum.all?(values, &(is_integer(&1) and &1 >= 0))
 
   defp layer_indices?(_), do: false

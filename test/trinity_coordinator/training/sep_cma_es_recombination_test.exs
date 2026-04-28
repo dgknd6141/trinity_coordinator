@@ -25,7 +25,9 @@ defmodule TrinityCoordinator.Training.SepCMAESRecombinationTest do
   test "rank-weighted mean favors higher ranked vectors" do
     top_vectors = Nx.tensor([[10.0, 0.0], [0.0, 10.0], [0.0, 0.0]], type: :f32)
     uniform = SepCMAES.weighted_mean(top_vectors, SepCMAES.recombination_weights(3, :uniform))
-    weighted = SepCMAES.weighted_mean(top_vectors, SepCMAES.recombination_weights(3, :rank_weighted))
+
+    weighted =
+      SepCMAES.weighted_mean(top_vectors, SepCMAES.recombination_weights(3, :rank_weighted))
 
     refute_all_close(uniform, weighted, atol: 1.0e-6)
     [weighted_x, weighted_y] = Nx.to_flat_list(weighted)

@@ -20,6 +20,16 @@ defmodule Mix.Tasks.Trinity.Hitl.MockLoop do
   def run(args) do
     Mix.Task.run("app.start")
 
+    args
+    |> parse_args!()
+    |> prepare_trace!()
+    |> run_mock_orchestrator!()
+    |> report_result!()
+
+    HITL.pass("TRINITY HITL MOCK ORCHESTRATOR LOOP")
+  end
+
+  defp parse_args!(args) do
     {opts, rest, errors} =
       OptionParser.parse(args,
         strict: [trace_out: :string, trace_content: :string, run_id: :string]
@@ -28,71 +38,109 @@ defmodule Mix.Tasks.Trinity.Hitl.MockLoop do
     unless rest == [], do: Mix.raise("Unexpected arguments: #{inspect(rest)}")
     unless errors == [], do: Mix.raise("Invalid options: #{inspect(errors)}")
 
-    trace_path = Keyword.get(opts, :trace_out, @default_trace_path)
-    trace_content = parse_trace_content(Keyword.get(opts, :trace_content, "hash"))
-    run_id = Keyword.get(opts, :run_id, "hitl_mock")
+    %{
+      trace_path: Keyword.get(opts, :trace_out, @default_trace_path),
+      trace_content: parse_trace_content(Keyword.get(opts, :trace_content, "hash")),
+      run_id: Keyword.get(opts, :run_id, "hitl_mock")
+    }
+  end
 
-    File.mkdir_p!(Path.dirname(trace_path))
-    File.rm(trace_path)
+  defp prepare_trace!(context) do
+    File.mkdir_p!(Path.dirname(context.trace_path))
+    File.rm(context.trace_path)
 
     HITL.banner("TRINITY HITL MOCK ORCHESTRATOR LOOP")
-    HITL.kv("Trace path", trace_path)
-    HITL.kv("Trace content", trace_content)
+    HITL.kv("Trace path", context.trace_path)
+    HITL.kv("Trace content", context.trace_content)
 
+    context
+  end
+
+  defp run_mock_orchestrator!(context) do
     {:ok, coordinator} = Coordinator.load()
-
-    {:ok, pid} =
-      StateManager.start_link([
-        %{role: "user", content: "Solve a tiny arithmetic task: compute 6 * 7."}
-      ])
-
+    {:ok, pid} = start_state_manager!()
     turn_counter = :counters.new(1, [])
-
-    mock_agent_fn = fn role, messages, metadata ->
-      :counters.add(turn_counter, 1, 1)
-      turn = :counters.get(turn_counter, 1)
-
-      HITL.kv("Mock turn #{turn}", %{
-        role: role,
-        agent_id: metadata.agent_id,
-        messages: length(messages)
-      })
-
-      case role do
-        :verifier -> {:ok, "ACCEPT: The current answer is complete enough for the smoke test."}
-        :thinker -> {:ok, "Plan: multiply 6 by 7 and ask a verifier to check it."}
-        :worker -> {:ok, "Result: 6 * 7 = 42."}
-        _ -> {:ok, "Proceed."}
-      end
-    end
 
     result =
       Orchestrator.run_loop(
         pid,
         coordinator.routing_model,
         coordinator.routing_params,
-        max_turns: 5,
-        num_agents: coordinator.num_agents,
-        num_roles: coordinator.num_roles,
-        slm_context: {coordinator.model_info, coordinator.tokenizer},
-        mock_agent_fn: mock_agent_fn,
-        provider_pool: :mock,
-        trace: [enabled: true, sink: {:jsonl, trace_path}, run_id: run_id, content: trace_content]
+        orchestrator_opts(coordinator, context, turn_counter)
       )
 
-    turns = :counters.get(turn_counter, 1)
-    HITL.kv("Mock turns executed", turns)
-    HITL.kv("Loop result", result)
-    HITL.kv("Trace path", trace_path)
+    Map.merge(context, %{result: result, turns: :counters.get(turn_counter, 1)})
+  end
 
-    unless turns > 0 do
-      raise "mock loop did not execute any provider turn"
+  defp start_state_manager! do
+    StateManager.start_link([
+      %{role: "user", content: "Solve a tiny arithmetic task: compute 6 * 7."}
+    ])
+  end
+
+  defp orchestrator_opts(coordinator, context, turn_counter) do
+    [
+      max_turns: 5,
+      num_agents: coordinator.num_agents,
+      num_roles: coordinator.num_roles,
+      slm_context: {coordinator.model_info, coordinator.tokenizer},
+      mock_agent_fn: mock_agent_fn(turn_counter),
+      provider_pool: :mock,
+      trace: [
+        enabled: true,
+        sink: {:jsonl, context.trace_path},
+        run_id: context.run_id,
+        content: context.trace_content
+      ]
+    ]
+  end
+
+  defp mock_agent_fn(turn_counter) do
+    fn role, messages, metadata ->
+      record_mock_turn!(turn_counter, role, messages, metadata)
+      {:ok, mock_response(role)}
     end
+  end
 
+  defp record_mock_turn!(turn_counter, role, messages, metadata) do
+    :counters.add(turn_counter, 1, 1)
+    turn = :counters.get(turn_counter, 1)
+
+    HITL.kv("Mock turn #{turn}", %{
+      role: role,
+      agent_id: metadata.agent_id,
+      messages: length(messages)
+    })
+  end
+
+  defp mock_response(:verifier),
+    do: "ACCEPT: The current answer is complete enough for the smoke test."
+
+  defp mock_response(:thinker), do: "Plan: multiply 6 by 7 and ask a verifier to check it."
+  defp mock_response(:worker), do: "Result: 6 * 7 = 42."
+  defp mock_response(_role), do: "Proceed."
+
+  defp report_result!(context) do
+    HITL.kv("Mock turns executed", context.turns)
+    HITL.kv("Loop result", context.result)
+    HITL.kv("Trace path", context.trace_path)
+
+    validate_turns!(context.turns)
+    validate_trace_file!(context.trace_path)
+    validate_trace_events!(context.trace_path)
+    report_termination!(context.result)
+  end
+
+  defp validate_turns!(turns) when turns > 0, do: :ok
+  defp validate_turns!(_turns), do: raise("mock loop did not execute any provider turn")
+
+  defp validate_trace_file!(trace_path) do
     unless File.exists?(trace_path) do
       raise "trace file was not written: #{trace_path}"
     end
+  end
 
+  defp validate_trace_events!(trace_path) do
     trace_events = trace_event_names(trace_path)
     HITL.kv("Trace events", trace_events)
 
@@ -100,19 +148,16 @@ defmodule Mix.Tasks.Trinity.Hitl.MockLoop do
              Enum.member?(trace_events, "route_selected") do
       raise "trace file did not include extraction and route events"
     end
+  end
 
-    case result do
-      {:ok, _response} ->
-        HITL.kv("Termination", "Verifier ACCEPT")
+  defp report_termination!({:ok, _response}), do: HITL.kv("Termination", "Verifier ACCEPT")
 
-      {:error, :max_turns_reached} ->
-        HITL.kv("Termination", "max_turns_reached after successful mock dispatch")
+  defp report_termination!({:error, :max_turns_reached}) do
+    HITL.kv("Termination", "max_turns_reached after successful mock dispatch")
+  end
 
-      {:error, reason} ->
-        raise "mock loop failed: #{inspect(reason)}"
-    end
-
-    HITL.pass("TRINITY HITL MOCK ORCHESTRATOR LOOP")
+  defp report_termination!({:error, reason}) do
+    raise "mock loop failed: #{inspect(reason)}"
   end
 
   defp parse_trace_content("full"), do: :full
@@ -123,12 +168,14 @@ defmodule Mix.Tasks.Trinity.Hitl.MockLoop do
     path
     |> File.read!()
     |> String.split("\n", trim: true)
-    |> Enum.map(fn line ->
-      case Jason.decode(line) do
-        {:ok, %{"event" => event}} -> event
-        _ -> nil
-      end
-    end)
+    |> Enum.map(&trace_event_name/1)
     |> Enum.reject(&is_nil/1)
+  end
+
+  defp trace_event_name(line) do
+    case Jason.decode(line) do
+      {:ok, %{"event" => event}} -> event
+      _ -> nil
+    end
   end
 end

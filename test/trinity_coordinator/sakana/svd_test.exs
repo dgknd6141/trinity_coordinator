@@ -884,20 +884,9 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
   end
 
   defp fetch_child!(container, segment) when is_map(container) do
-    if Map.has_key?(container, segment) do
-      Map.fetch!(container, segment)
-    else
-      if is_binary(segment) do
-        atom = existing_atom(segment)
-
-        if atom && Map.has_key?(container, atom) do
-          Map.fetch!(container, atom)
-        else
-          raise ArgumentError, "missing map segment #{inspect(segment)}"
-        end
-      else
-        raise ArgumentError, "missing map segment #{inspect(segment)}"
-      end
+    case resolve_test_map_key(container, segment) do
+      nil -> raise ArgumentError, "missing map segment #{inspect(segment)}"
+      key -> Map.fetch!(container, key)
     end
   end
 
@@ -906,13 +895,23 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
           "cannot descend into #{inspect(container)} with segment #{inspect(segment)}"
   end
 
-  defp existing_atom(key) when is_binary(key) do
-    try do
-      String.to_existing_atom(key)
-    rescue
-      ArgumentError ->
-        nil
+  defp resolve_test_map_key(container, segment) do
+    cond do
+      Map.has_key?(container, segment) -> segment
+      is_binary(segment) -> existing_atom_key(container, segment)
+      true -> nil
     end
+  end
+
+  defp existing_atom_key(container, segment) do
+    atom = existing_atom(segment)
+    if atom && Map.has_key?(container, atom), do: atom
+  end
+
+  defp existing_atom(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
   end
 
   defp load_export_log_events(out_dir) do

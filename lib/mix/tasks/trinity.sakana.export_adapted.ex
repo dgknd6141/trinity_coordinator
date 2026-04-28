@@ -8,7 +8,7 @@ defmodule Mix.Tasks.Trinity.Sakana.ExportAdapted do
 
   use Mix.Task
 
-  alias TrinityCoordinator.Sakana.{ExportSpec, Exporter}
+  alias TrinityCoordinator.Sakana.{Exporter, ExportSpec}
 
   @shortdoc "Exports Sakana-adapted Qwen tensors and router head"
 
@@ -83,25 +83,38 @@ defmodule Mix.Tasks.Trinity.Sakana.ExportAdapted do
   end
 
   defp validate_output_policy!(opts) do
-    out_dir = Keyword.fetch!(opts, :out_dir)
-
-    unless Keyword.get(opts, :dry_run, false) do
-      case File.stat(out_dir) do
-        {:ok, %File.Stat{type: :directory}} ->
-          if not Keyword.get(opts, :resume, false) and not Keyword.get(opts, :force, false) do
-            Mix.raise("Output directory exists: #{out_dir}. Use --force or --resume to proceed.")
-          end
-
-        {:ok, %File.Stat{type: _}} ->
-          Mix.raise("Output path exists but is not a directory: #{out_dir}")
-
-        {:error, :enoent} ->
-          :ok
-      end
+    if not Keyword.get(opts, :dry_run, false) do
+      validate_output_directory_policy!(opts)
     end
 
-    source_path = Keyword.fetch!(opts, :source_vector_path)
+    validate_source_vector_exists!(Keyword.fetch!(opts, :source_vector_path))
+  end
 
+  defp validate_output_directory_policy!(opts) do
+    out_dir = Keyword.fetch!(opts, :out_dir)
+
+    case File.stat(out_dir) do
+      {:ok, %File.Stat{type: :directory}} ->
+        validate_existing_output_directory!(out_dir, opts)
+
+      {:ok, %File.Stat{type: _}} ->
+        Mix.raise("Output path exists but is not a directory: #{out_dir}")
+
+      {:error, :enoent} ->
+        :ok
+    end
+  end
+
+  defp validate_existing_output_directory!(out_dir, opts) do
+    resume? = Keyword.get(opts, :resume, false)
+    force? = Keyword.get(opts, :force, false)
+
+    unless resume? or force? do
+      Mix.raise("Output directory exists: #{out_dir}. Use --force or --resume to proceed.")
+    end
+  end
+
+  defp validate_source_vector_exists!(source_path) do
     unless File.exists?(source_path) do
       Mix.raise("Source vector file does not exist: #{source_path}")
     end

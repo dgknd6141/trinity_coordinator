@@ -19,7 +19,7 @@ defmodule TrinityCoordinator.Sakana.Coordinator do
           required(:model_info) => map(),
           required(:tokenizer) => map(),
           required(:routing_model) => Axon.t(),
-          required(:routing_params) => Axon.ModelState.t(),
+          required(:routing_params) => struct(),
           required(:manifest) => map(),
           required(:artifact_dir) => String.t(),
           required(:num_agents) => pos_integer(),

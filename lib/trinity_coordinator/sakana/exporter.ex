@@ -51,66 +51,75 @@ defmodule TrinityCoordinator.Sakana.Exporter do
       )
       |> normalize_options()
 
+    opts
+    |> run_export()
+    |> finalize_export_result(opts)
+  end
+
+  defp run_export(opts) do
+    if opts[:dry_run] do
+      run_dry_run(opts)
+    else
+      run_full_export(opts)
+    end
+  end
+
+  defp run_full_export(opts) do
     out_dir = opts[:out_dir]
 
-    result =
-      if opts[:dry_run] do
-        run_dry_run(opts)
-      else
-        emit_progress(out_dir, opts[:progress], %{
-          event: :export_started,
-          options: summarize_options(opts)
-        })
+    emit_progress(out_dir, opts[:progress], %{
+      event: :export_started,
+      options: summarize_options(opts)
+    })
 
-        try do
-          with :ok <- validate_only_index(opts[:only_index]),
-               {:ok, out_dir, manifest_hint, profile} <- prepare_output(opts),
-               {:ok, source_vector} <- load_source_vector(opts),
-               {:ok, split} <- split_router_vector(source_vector, opts[:spec]),
-               {:ok, model_info} <- load_profile(profile),
-               {:ok, selected} <- select_tensors(model_info, opts[:spec]),
-               :ok <- validate_selection(selected, split.scale_offsets, opts[:spec]),
-               {:ok, manifest} <-
-                 build_or_resume_manifest(
-                   opts,
-                   out_dir,
-                   profile,
-                   source_vector,
-                   split,
-                   selected,
-                   manifest_hint
-                 ),
-               {:ok, manifest} <- export_router_head(out_dir, split.head_weights, manifest, opts),
-               {:ok, manifest} <-
-                 export_tensors(out_dir, split.scale_offsets, selected, manifest, opts),
-               {:ok, manifest} <- finalize_manifest(manifest, opts[:only_index], out_dir),
-               {:ok, manifest} <- finalize_merge_if_complete(out_dir, manifest) do
-            {:ok, manifest}
-          end
-        rescue
-          e ->
-            {:error, {:export_exception, Exception.message(e)}}
-        end
-      end
+    do_run_full_export(opts)
+  rescue
+    e -> {:error, {:export_exception, Exception.message(e)}}
+  end
 
-    case result do
-      {:ok, manifest} = ok ->
-        unless opts[:dry_run] do
-          emit_progress(out_dir, opts[:progress], %{
-            event: :export_finished,
-            status: manifest["status"]
-          })
-        end
-
-        ok
-
-      {:error, reason} ->
-        unless opts[:dry_run] do
-          emit_progress(out_dir, opts[:progress], %{event: :export_failed, reason: reason})
-        end
-
-        {:error, reason}
+  defp do_run_full_export(opts) do
+    with :ok <- validate_only_index(opts[:only_index]),
+         {:ok, out_dir, manifest_hint, profile} <- prepare_output(opts),
+         {:ok, source_vector} <- load_source_vector(opts),
+         {:ok, split} <- split_router_vector(source_vector, opts[:spec]),
+         {:ok, model_info} <- load_profile(profile),
+         {:ok, selected} <- select_tensors(model_info, opts[:spec]),
+         :ok <- validate_selection(selected, split.scale_offsets, opts[:spec]),
+         {:ok, manifest} <-
+           build_or_resume_manifest(
+             opts,
+             out_dir,
+             profile,
+             source_vector,
+             split,
+             selected,
+             manifest_hint
+           ),
+         {:ok, manifest} <- export_router_head(out_dir, split.head_weights, manifest, opts),
+         {:ok, manifest} <-
+           export_tensors(out_dir, split.scale_offsets, selected, manifest, opts),
+         {:ok, manifest} <- finalize_manifest(manifest, opts[:only_index], out_dir) do
+      finalize_merge_if_complete(out_dir, manifest)
     end
+  end
+
+  defp finalize_export_result({:ok, manifest} = ok, opts) do
+    unless opts[:dry_run] do
+      emit_progress(opts[:out_dir], opts[:progress], %{
+        event: :export_finished,
+        status: manifest["status"]
+      })
+    end
+
+    ok
+  end
+
+  defp finalize_export_result({:error, reason}, opts) do
+    unless opts[:dry_run] do
+      emit_progress(opts[:out_dir], opts[:progress], %{event: :export_failed, reason: reason})
+    end
+
+    {:error, reason}
   end
 
   defp normalize_options(opts) do
@@ -152,84 +161,99 @@ defmodule TrinityCoordinator.Sakana.Exporter do
   end
 
   defp run_dry_run(opts) do
-    try do
-      profile = profile_for_spec(opts[:spec])
+    profile = profile_for_spec(opts[:spec])
 
-      with :ok <- validate_only_index(opts[:only_index]),
-           {:ok, source_vector} <- load_source_vector(opts),
-           {:ok, split} <- split_router_vector(source_vector, opts[:spec]),
-           {:ok, model_info} <- load_profile(profile),
-           {:ok, selected} <- select_tensors(model_info, opts[:spec]),
-           :ok <- validate_selection(selected, split.scale_offsets, opts[:spec]) do
-        {:ok,
-         %{
-           "status" => "dry_run",
-           "export_complete" => false,
-           "dry_run" => true,
-           "export_spec" => ExportSpec.to_map(opts[:spec]),
-           "source_vector_shape" => Tuple.to_list(Nx.shape(source_vector)),
-           "scale_offsets_shape" => Tuple.to_list(Nx.shape(split.scale_offsets)),
-           "router_head_shape" => Tuple.to_list(Nx.shape(split.head_weights)),
-           "selected_tensor_count" => length(selected),
-           "selected_singular_value_count" => SVD.singular_value_count(selected),
-           "selected_tensors" =>
-             selected
-             |> Enum.with_index(1)
-             |> Enum.map(fn {entry, index} ->
-               %{
-                 "index" => index,
-                 "path" => entry.path,
-                 "shape" => Tuple.to_list(Nx.shape(entry.tensor)),
-                 "singular_values" => entry_singular_count(entry),
-                 "backend" => Runtime.tensor_backend(entry.tensor)
-               }
-             end)
-         }}
-      end
-    rescue
-      e -> {:error, {:dry_run_exception, Exception.message(e)}}
+    with :ok <- validate_only_index(opts[:only_index]),
+         {:ok, source_vector} <- load_source_vector(opts),
+         {:ok, split} <- split_router_vector(source_vector, opts[:spec]),
+         {:ok, model_info} <- load_profile(profile),
+         {:ok, selected} <- select_tensors(model_info, opts[:spec]),
+         :ok <- validate_selection(selected, split.scale_offsets, opts[:spec]) do
+      {:ok, dry_run_manifest(opts, source_vector, split, selected)}
     end
+  rescue
+    e -> {:error, {:dry_run_exception, Exception.message(e)}}
+  end
+
+  defp dry_run_manifest(opts, source_vector, split, selected) do
+    %{
+      "status" => "dry_run",
+      "export_complete" => false,
+      "dry_run" => true,
+      "export_spec" => ExportSpec.to_map(opts[:spec]),
+      "source_vector_shape" => Tuple.to_list(Nx.shape(source_vector)),
+      "scale_offsets_shape" => Tuple.to_list(Nx.shape(split.scale_offsets)),
+      "router_head_shape" => Tuple.to_list(Nx.shape(split.head_weights)),
+      "selected_tensor_count" => length(selected),
+      "selected_singular_value_count" => SVD.singular_value_count(selected),
+      "selected_tensors" => Enum.with_index(selected, 1) |> Enum.map(&dry_run_tensor_entry/1)
+    }
+  end
+
+  defp dry_run_tensor_entry({entry, index}) do
+    %{
+      "index" => index,
+      "path" => entry.path,
+      "shape" => Tuple.to_list(Nx.shape(entry.tensor)),
+      "singular_values" => entry_singular_count(entry),
+      "backend" => Runtime.tensor_backend(entry.tensor)
+    }
   end
 
   defp prepare_output(opts) do
-    out_dir = opts[:out_dir]
-    force = opts[:force]
-    resume = opts[:resume]
+    with :ok <- validate_output_dir(opts[:out_dir]) do
+      prepare_output_dir(opts)
+    end
+  end
 
+  defp validate_output_dir(out_dir) when is_binary(out_dir) and out_dir != "", do: :ok
+  defp validate_output_dir(out_dir), do: {:error, {:invalid_output_dir, out_dir}}
+
+  defp prepare_output_dir(opts) do
     cond do
-      !is_binary(out_dir) ->
-        {:error, {:invalid_output_dir, out_dir}}
+      opts[:force] ->
+        prepare_forced_output(opts)
 
-      out_dir == "" ->
-        {:error, {:invalid_output_dir, out_dir}}
-
-      force ->
-        File.rm_rf(out_dir)
-        File.mkdir_p!(out_dir)
-        File.mkdir_p!(Artifact.checkpoint_path(out_dir))
-        {:ok, out_dir, nil, profile_for_spec(opts[:spec])}
-
-      File.exists?(out_dir) ->
-        case Artifact.load_manifest(out_dir) do
-          {:ok, manifest} when resume ->
-            File.mkdir_p!(Artifact.checkpoint_path(out_dir))
-            {:ok, out_dir, manifest, profile_for_spec(opts[:spec])}
-
-          {:ok, _manifest} ->
-            {:error, :output_dir_already_exists_without_resume}
-
-          {:error, _} when resume ->
-            {:error, :missing_manifest_for_resume}
-
-          _ ->
-            {:error, :output_dir_already_exists_without_resume}
-        end
+      File.exists?(opts[:out_dir]) ->
+        prepare_existing_output(opts)
 
       true ->
-        File.mkdir_p!(out_dir)
-        File.mkdir_p!(Artifact.checkpoint_path(out_dir))
-        {:ok, out_dir, nil, profile_for_spec(opts[:spec])}
+        prepare_new_output(opts)
     end
+  end
+
+  defp prepare_forced_output(opts) do
+    File.rm_rf(opts[:out_dir])
+    prepare_new_output(opts)
+  end
+
+  defp prepare_new_output(opts) do
+    ensure_output_dirs!(opts[:out_dir])
+    {:ok, opts[:out_dir], nil, profile_for_spec(opts[:spec])}
+  end
+
+  defp prepare_existing_output(opts) do
+    if opts[:resume] do
+      load_existing_manifest(opts)
+    else
+      {:error, :output_dir_already_exists_without_resume}
+    end
+  end
+
+  defp load_existing_manifest(opts) do
+    case Artifact.load_manifest(opts[:out_dir]) do
+      {:ok, manifest} ->
+        ensure_output_dirs!(opts[:out_dir])
+        {:ok, opts[:out_dir], manifest, profile_for_spec(opts[:spec])}
+
+      {:error, _} ->
+        {:error, :missing_manifest_for_resume}
+    end
+  end
+
+  defp ensure_output_dirs!(out_dir) do
+    File.mkdir_p!(out_dir)
+    File.mkdir_p!(Artifact.checkpoint_path(out_dir))
   end
 
   defp load_profile(profile) do
@@ -250,13 +274,9 @@ defmodule TrinityCoordinator.Sakana.Exporter do
   defp load_source_vector(opts) do
     path = opts[:source_vector_path]
     tensor_name = opts[:source_vector_tensor]
-
-    try do
-      {:ok, SVD.load_router_vector!(path, tensor_name)}
-    rescue
-      e ->
-        {:error, {:source_vector_read_error, Exception.message(e)}}
-    end
+    {:ok, SVD.load_router_vector!(path, tensor_name)}
+  rescue
+    e -> {:error, {:source_vector_read_error, Exception.message(e)}}
   end
 
   defp split_router_vector(vector, %ExportSpec{} = spec) do
@@ -264,37 +284,35 @@ defmodule TrinityCoordinator.Sakana.Exporter do
 
     case Nx.shape(vector) do
       {size} when size == expected ->
-        try do
-          {:ok,
-           SVD.split_router_vector(
-             vector,
-             spec.scale_offset_count,
-             spec.hidden_size,
-             ExportSpec.output_count(spec)
-           )}
-        rescue
-          e ->
-            {:error, {:split_error, Exception.message(e)}}
-        end
+        split_router_vector_with_spec(vector, spec)
 
       shape ->
         {:error, {:invalid_source_vector_shape, shape}}
     end
   end
 
-  defp select_tensors(model_info, %ExportSpec{} = spec) do
-    try do
-      selected =
-        SVD.decomposable_tensor_entries(
-          model_info.params,
-          path_filter: SVD.layer_index_filter(spec.selected_layer_indices)
-        )
+  defp split_router_vector_with_spec(vector, spec) do
+    {:ok,
+     SVD.split_router_vector(
+       vector,
+       spec.scale_offset_count,
+       spec.hidden_size,
+       ExportSpec.output_count(spec)
+     )}
+  rescue
+    e -> {:error, {:split_error, Exception.message(e)}}
+  end
 
-      {:ok, selected}
-    rescue
-      e ->
-        {:error, {:tensor_selection_error, Exception.message(e)}}
-    end
+  defp select_tensors(model_info, %ExportSpec{} = spec) do
+    selected =
+      SVD.decomposable_tensor_entries(
+        model_info.params,
+        path_filter: SVD.layer_index_filter(spec.selected_layer_indices)
+      )
+
+    {:ok, selected}
+  rescue
+    e -> {:error, {:tensor_selection_error, Exception.message(e)}}
   end
 
   defp validate_selection(selected, scale_offsets, %ExportSpec{} = spec) do
@@ -302,7 +320,7 @@ defmodule TrinityCoordinator.Sakana.Exporter do
     scale_count = Nx.size(scale_offsets)
 
     cond do
-      length(selected) == 0 ->
+      selected == [] ->
         {:error, :no_selected_tensors}
 
       singular_total != spec.scale_offset_count ->
@@ -366,31 +384,31 @@ defmodule TrinityCoordinator.Sakana.Exporter do
   defp verified_entry_state(nil, _out_dir, entry), do: pending_entry(entry)
 
   defp verified_entry_state(existing, out_dir, entry) do
-    status = Map.get(existing, "status", @pending_status)
+    case Map.get(existing, "status", @pending_status) do
+      @complete_status -> verified_complete_entry(existing, out_dir, entry)
+      _other -> pending_entry(entry)
+    end
+  end
 
-    cond do
-      status == @complete_status ->
-        checkpoint_path = Path.join(out_dir, Map.get(existing, "checkpoint_path", ""))
+  defp verified_complete_entry(existing, out_dir, entry) do
+    checkpoint_path = Path.join(out_dir, Map.get(existing, "checkpoint_path", ""))
 
-        if checkpoint_valid?(existing, checkpoint_path) do
-          Map.take(existing, [
-            "status",
-            "checkpoint_sha256",
-            "decompose_elapsed_ms",
-            "reconstruct_elapsed_ms",
-            "u_backend",
-            "s_backend",
-            "v_backend",
-            "adapted_backend",
-            "error"
-          ])
-          |> Map.put("status", @complete_status)
-        else
-          pending_entry(entry)
-        end
-
-      true ->
-        pending_entry(entry)
+    if checkpoint_valid?(existing, checkpoint_path) do
+      existing
+      |> Map.take([
+        "status",
+        "checkpoint_sha256",
+        "decompose_elapsed_ms",
+        "reconstruct_elapsed_ms",
+        "u_backend",
+        "s_backend",
+        "v_backend",
+        "adapted_backend",
+        "error"
+      ])
+      |> Map.put("status", @complete_status)
+    else
+      pending_entry(entry)
     end
   end
 
@@ -498,40 +516,51 @@ defmodule TrinityCoordinator.Sakana.Exporter do
     head_key = manifest["router_head_tensor_key"] || Artifact.router_head_tensor_key()
 
     with :ok <- File.mkdir_p(out_dir) do
-      if opts[:skip_existing] && File.exists?(head_path) do
-        with {:ok, tensor} <- safe_read_router_head(head_path, head_key),
-             :ok <- validate_router_head_shape(tensor, manifest["router_head_shape"]) do
-          emit_progress(
-            out_dir,
-            opts[:progress],
-            %{event: :router_head_skipped, path: head_path, status: manifest["status"]}
-          )
+      export_or_reuse_router_head(out_dir, head_path, head_key, head_weights, manifest, opts)
+    end
+  end
 
-          {:ok, manifest}
-        else
-          {:error, reason} ->
-            emit_progress(
-              out_dir,
-              opts[:progress],
-              %{event: :router_head_rewrite, path: head_path, reason: reason}
-            )
+  defp export_or_reuse_router_head(out_dir, head_path, head_key, head_weights, manifest, opts) do
+    if should_try_reuse_router_head?(head_path, opts) do
+      reuse_or_rewrite_router_head(out_dir, head_path, head_key, head_weights, manifest, opts)
+    else
+      write_router_head(out_dir, head_weights, head_key, manifest, opts)
+    end
+  end
 
-            write_router_head(out_dir, head_weights, head_key, manifest, opts)
-        end
-      else
+  defp should_try_reuse_router_head?(head_path, opts) do
+    opts[:skip_existing] and File.exists?(head_path)
+  end
+
+  defp reuse_or_rewrite_router_head(out_dir, head_path, head_key, head_weights, manifest, opts) do
+    with {:ok, tensor} <- safe_read_router_head(head_path, head_key),
+         :ok <- validate_router_head_shape(tensor, manifest["router_head_shape"]) do
+      emit_progress(out_dir, opts[:progress], %{
+        event: :router_head_skipped,
+        path: head_path,
+        status: manifest["status"]
+      })
+
+      {:ok, manifest}
+    else
+      {:error, reason} ->
+        emit_progress(out_dir, opts[:progress], %{
+          event: :router_head_rewrite,
+          path: head_path,
+          reason: reason
+        })
+
         write_router_head(out_dir, head_weights, head_key, manifest, opts)
-      end
     end
   end
 
   defp safe_read_router_head(path, key) do
-    try do
-      tensor = Safetensors.read!(path)[key]
-      if is_nil(tensor), do: {:error, :router_head_key_missing}, else: {:ok, tensor}
-    rescue
-      e ->
-        {:error, {:router_head_read_error, Exception.message(e)}}
+    case Safetensors.read!(path)[key] do
+      %Nx.Tensor{} = tensor -> {:ok, tensor}
+      nil -> {:error, :router_head_key_missing}
     end
+  rescue
+    e -> {:error, {:router_head_read_error, Exception.message(e)}}
   end
 
   defp validate_router_head_shape(tensor, expected_shape) when is_list(expected_shape) do
@@ -547,133 +576,150 @@ defmodule TrinityCoordinator.Sakana.Exporter do
     tmp = head_path <> ".tmp"
     payload = %{head_key => Nx.backend_transfer(head_weights, Nx.BinaryBackend)}
 
-    try do
-      Safetensors.write!(tmp, payload)
-      File.rename!(tmp, head_path)
-      sha = Artifact.file_sha256!(head_path)
-      updated = Map.put(manifest, "router_head_sha256", sha)
-      Artifact.write_manifest!(out_dir, updated)
+    Safetensors.write!(tmp, payload)
+    File.rename!(tmp, head_path)
+    sha = Artifact.file_sha256!(head_path)
+    updated = Map.put(manifest, "router_head_sha256", sha)
+    Artifact.write_manifest!(out_dir, updated)
 
-      emit_progress(
-        out_dir,
-        opts[:progress],
-        %{event: :router_head_export_complete, path: head_path, sha256: sha}
-      )
+    emit_progress(
+      out_dir,
+      opts[:progress],
+      %{event: :router_head_export_complete, path: head_path, sha256: sha}
+    )
 
-      {:ok, updated}
-    rescue
-      e ->
-        {:error, {:router_head_write_error, Exception.message(e)}}
-    end
+    {:ok, updated}
+  rescue
+    e -> {:error, {:router_head_write_error, Exception.message(e)}}
   end
 
   defp export_tensors(out_dir, scale_offsets, selected, manifest, opts) do
     source_tensors = Map.new(selected, fn entry -> {entry.path, entry.tensor} end)
+    to_process = tensors_to_process(manifest, opts[:only_index])
 
-    to_process =
-      case opts[:only_index] do
-        nil -> manifest["selected_tensors"]
-        index -> Enum.filter(manifest["selected_tensors"], &(&1["index"] == index))
-      end
+    case to_process do
+      [] ->
+        {:error, {:invalid_only_index, opts[:only_index]}}
 
-    if to_process == [] do
-      {:error, {:invalid_only_index, opts[:only_index]}}
-    else
-      Enum.reduce_while(to_process, manifest, fn entry, current ->
-        entry_path = entry["path"]
-        source_tensor = Map.get(source_tensors, entry_path)
-
-        cond do
-          source_tensor == nil ->
-            {:halt, {:error, {:missing_source_tensor, entry_path}}}
-
-          should_skip_entry?(entry, out_dir, opts[:skip_existing]) ->
-            emit_progress(
-              out_dir,
-              opts[:progress],
-              %{
-                event: :tensor_skipped,
-                path: entry_path,
-                index: entry["index"],
-                index_total: length(to_process)
-              }
-            )
-
-            {:cont, current}
-
-          true ->
-            started =
-              Map.put(current, "updated_at", now_iso8601())
-              |> update_selected_tensor(
-                entry["index"],
-                %{"status" => @running_status}
-              )
-
-            :ok = Artifact.write_manifest!(out_dir, started)
-
-            emit_progress(out_dir, opts[:progress], %{
-              event: :tensor_export_started,
-              index: entry["index"],
-              total: length(to_process),
-              path: entry_path
-            })
-
-            case export_tensor(
-                   out_dir,
-                   source_tensor,
-                   entry,
-                   scale_offsets,
-                   opts
-                 ) do
-              {:ok, entry_update} ->
-                updated =
-                  started
-                  |> update_selected_tensor(entry["index"], entry_update)
-                  |> Map.put("updated_at", now_iso8601())
-
-                :ok = Artifact.write_manifest!(out_dir, updated)
-
-                emit_progress(
-                  out_dir,
-                  opts[:progress],
-                  %{event: :tensor_export_finished, index: entry["index"], path: entry_path}
-                )
-
-                {:cont, updated}
-
-              {:error, reason} ->
-                updated =
-                  started
-                  |> update_selected_tensor(entry["index"], %{
-                    "status" => @failed_status,
-                    "error" => inspect(reason)
-                  })
-                  |> Map.put("status", @failed_status)
-                  |> Map.put("updated_at", now_iso8601())
-
-                :ok = Artifact.write_manifest!(out_dir, updated)
-
-                emit_progress(
-                  out_dir,
-                  opts[:progress],
-                  %{
-                    event: :tensor_export_failed,
-                    index: entry["index"],
-                    path: entry_path,
-                    reason: reason
-                  }
-                )
-
-                {:halt, {:error, reason}}
-            end
-        end
-      end)
-      |> then(fn
-        {:error, reason} -> {:error, reason}
-        final_manifest -> {:ok, final_manifest}
-      end)
+      [_ | _] ->
+        process_export_tensors(to_process, source_tensors, out_dir, scale_offsets, manifest, opts)
     end
   end
+
+  defp tensors_to_process(manifest, nil), do: manifest["selected_tensors"]
+
+  defp tensors_to_process(manifest, index) do
+    Enum.filter(manifest["selected_tensors"], &(&1["index"] == index))
+  end
+
+  defp process_export_tensors(to_process, source_tensors, out_dir, scale_offsets, manifest, opts) do
+    context = %{
+      total: length(to_process),
+      source_tensors: source_tensors,
+      out_dir: out_dir,
+      scale_offsets: scale_offsets,
+      opts: opts
+    }
+
+    to_process
+    |> Enum.reduce_while(manifest, &process_export_tensor_entry(&1, &2, context))
+    |> normalize_export_tensors_result()
+  end
+
+  defp process_export_tensor_entry(entry, current, context) do
+    entry_path = entry["path"]
+    source_tensor = Map.get(context.source_tensors, entry_path)
+
+    cond do
+      is_nil(source_tensor) ->
+        {:halt, {:error, {:missing_source_tensor, entry_path}}}
+
+      should_skip_entry?(entry, context.out_dir, context.opts[:skip_existing]) ->
+        skip_tensor_entry(entry, current, context)
+
+      true ->
+        run_tensor_export(entry, source_tensor, current, context)
+    end
+  end
+
+  defp skip_tensor_entry(entry, current, context) do
+    emit_progress(context.out_dir, context.opts[:progress], %{
+      event: :tensor_skipped,
+      path: entry["path"],
+      index: entry["index"],
+      index_total: context.total
+    })
+
+    {:cont, current}
+  end
+
+  defp run_tensor_export(entry, source_tensor, current, context) do
+    started = mark_tensor_running!(current, entry, context)
+
+    context.out_dir
+    |> export_tensor(source_tensor, entry, context.scale_offsets, context.opts)
+    |> handle_tensor_export_result(entry, started, context)
+  end
+
+  defp mark_tensor_running!(current, entry, context) do
+    started =
+      current
+      |> Map.put("updated_at", now_iso8601())
+      |> update_selected_tensor(entry["index"], %{"status" => @running_status})
+
+    :ok = Artifact.write_manifest!(context.out_dir, started)
+
+    emit_progress(context.out_dir, context.opts[:progress], %{
+      event: :tensor_export_started,
+      index: entry["index"],
+      total: context.total,
+      path: entry["path"]
+    })
+
+    started
+  end
+
+  defp handle_tensor_export_result({:ok, entry_update}, entry, started, context) do
+    updated =
+      started
+      |> update_selected_tensor(entry["index"], entry_update)
+      |> Map.put("updated_at", now_iso8601())
+
+    :ok = Artifact.write_manifest!(context.out_dir, updated)
+
+    emit_progress(context.out_dir, context.opts[:progress], %{
+      event: :tensor_export_finished,
+      index: entry["index"],
+      path: entry["path"]
+    })
+
+    {:cont, updated}
+  end
+
+  defp handle_tensor_export_result({:error, reason}, entry, started, context) do
+    updated =
+      started
+      |> update_selected_tensor(entry["index"], %{
+        "status" => @failed_status,
+        "error" => inspect(reason)
+      })
+      |> Map.put("status", @failed_status)
+      |> Map.put("updated_at", now_iso8601())
+
+    :ok = Artifact.write_manifest!(context.out_dir, updated)
+
+    emit_progress(context.out_dir, context.opts[:progress], %{
+      event: :tensor_export_failed,
+      index: entry["index"],
+      path: entry["path"],
+      reason: reason
+    })
+
+    {:halt, {:error, reason}}
+  end
+
+  defp normalize_export_tensors_result({:error, reason}), do: {:error, reason}
+  defp normalize_export_tensors_result(final_manifest), do: {:ok, final_manifest}
 
   defp should_skip_entry?(entry, out_dir, true) do
     if entry["status"] == @complete_status do
@@ -706,13 +752,12 @@ defmodule TrinityCoordinator.Sakana.Exporter do
   end
 
   defp safely_read_checkpoint_tensor(path, key) do
-    try do
-      tensor = Safetensors.read!(path)[key]
-      if is_nil(tensor), do: {:error, :missing_checkpoint_tensor}, else: {:ok, tensor}
-    rescue
-      e ->
-        {:error, {:checkpoint_read_error, Exception.message(e)}}
+    case Safetensors.read!(path)[key] do
+      %Nx.Tensor{} = tensor -> {:ok, tensor}
+      nil -> {:error, :missing_checkpoint_tensor}
     end
+  rescue
+    e -> {:error, {:checkpoint_read_error, Exception.message(e)}}
   end
 
   defp normalize_shape(shape) when is_list(shape), do: List.to_tuple(shape)
@@ -791,41 +836,26 @@ defmodule TrinityCoordinator.Sakana.Exporter do
     end
   end
 
-  defp timed_decompose(tensor, :source) do
-    try do
-      start = monotonic_us()
-      decomposition = SVD.decompose_tensor(tensor)
-      elapsed = elapsed_ms(start)
-      {:ok, decomposition, elapsed, tensor}
-    rescue
-      e ->
-        {:error, {:decompose_error, Exception.message(e)}}
-    end
+  defp timed_decompose(tensor, mode) do
+    start = monotonic_us()
+    decompose_source = decompose_source_tensor(tensor, mode)
+    decomposition = SVD.decompose_tensor(decompose_source)
+    elapsed = elapsed_ms(start)
+    {:ok, decomposition, elapsed, decompose_source}
+  rescue
+    e -> {:error, {:decompose_error, Exception.message(e)}}
   end
 
-  defp timed_decompose(tensor, :f32) do
-    try do
-      start = monotonic_us()
-      decompose_source = Nx.as_type(tensor, :f32)
-      decomposition = SVD.decompose_tensor(decompose_source)
-      elapsed = elapsed_ms(start)
-      {:ok, decomposition, elapsed, decompose_source}
-    rescue
-      e ->
-        {:error, {:decompose_error, Exception.message(e)}}
-    end
-  end
+  defp decompose_source_tensor(tensor, :source), do: tensor
+  defp decompose_source_tensor(tensor, :f32), do: Nx.as_type(tensor, :f32)
 
   defp timed_reconstruct(decomposition, offsets, source_tensor) do
-    try do
-      start = monotonic_us()
-      adapted = SVD.reconstruct(decomposition, offsets) |> Nx.as_type(Nx.type(source_tensor))
-      elapsed = elapsed_ms(start)
-      {:ok, adapted, elapsed}
-    rescue
-      e ->
-        {:error, {:reconstruct_error, Exception.message(e)}}
-    end
+    start = monotonic_us()
+    adapted = SVD.reconstruct(decomposition, offsets) |> Nx.as_type(Nx.type(source_tensor))
+    elapsed = elapsed_ms(start)
+    {:ok, adapted, elapsed}
+  rescue
+    e -> {:error, {:reconstruct_error, Exception.message(e)}}
   end
 
   defp ensure_cuda_backend(tensor, path) do
@@ -844,15 +874,12 @@ defmodule TrinityCoordinator.Sakana.Exporter do
     payload = %{artifact_key => Nx.backend_transfer(tensor, Nx.BinaryBackend)}
     File.mkdir_p!(Path.dirname(full_path))
 
-    try do
-      Logger.debug("writing checkpoint #{inspect(artifact_key)} to #{full_path}")
-      Safetensors.write!(tmp, payload)
-      File.rename!(tmp, full_path)
-      {:ok, Artifact.file_sha256!(full_path)}
-    rescue
-      e ->
-        {:error, {:checkpoint_write_error, Exception.message(e)}}
-    end
+    Logger.debug("writing checkpoint #{inspect(artifact_key)} to #{full_path}")
+    Safetensors.write!(tmp, payload)
+    File.rename!(tmp, full_path)
+    {:ok, Artifact.file_sha256!(full_path)}
+  rescue
+    e -> {:error, {:checkpoint_write_error, Exception.message(e)}}
   end
 
   defp finalize_manifest(manifest, nil, out_dir) do
@@ -925,70 +952,72 @@ defmodule TrinityCoordinator.Sakana.Exporter do
 
   defp finalize_merge_if_complete(out_dir, manifest) do
     if manifest["status"] == "complete" and all_tensors_complete?(manifest["selected_tensors"]) do
-      emit_progress(
-        out_dir,
-        nil,
-        %{event: :artifact_merge_started, selected_tensors: length(manifest["selected_tensors"])}
-      )
-
-      final_path = Path.join(out_dir, Artifact.adapted_tensors_file())
-      tmp = final_path <> ".tmp"
-
-      tensors =
-        manifest["selected_tensors"]
-        |> Enum.map(fn entry ->
-          path = Map.fetch!(entry, "checkpoint_path")
-          key = Map.fetch!(entry, "artifact_key")
-          checkpoint = Safetensors.read!(Path.join(out_dir, path))
-          {key, Map.fetch!(checkpoint, key)}
-        end)
-        |> Map.new()
-
-      try do
-        Safetensors.write!(tmp, tensors)
-        File.rename!(tmp, final_path)
-
-        merged =
-          manifest
-          |> Map.put("artifact_layout", Artifact.artifact_layout_single_file())
-          |> Map.put("adapted_tensors_sha256", Artifact.file_sha256!(final_path))
-          |> Map.put("updated_at", now_iso8601())
-
-        emit_progress(
-          out_dir,
-          nil,
-          %{
-            event: :artifact_merge_complete,
-            path: final_path,
-            sha256: merged["adapted_tensors_sha256"]
-          }
-        )
-
-        Artifact.write_manifest!(out_dir, merged)
-        {:ok, merged}
-      rescue
-        e ->
-          partial =
-            manifest
-            |> Map.put("status", "failed")
-            |> Map.put("updated_at", now_iso8601())
-
-          emit_progress(
-            out_dir,
-            nil,
-            %{
-              event: :artifact_merge_failed,
-              path: final_path,
-              reason: Exception.message(e)
-            }
-          )
-
-          Artifact.write_manifest!(out_dir, partial)
-          {:error, {:adapted_merge_error, Exception.message(e)}}
-      end
+      merge_complete_artifacts(out_dir, manifest)
     else
       {:ok, manifest}
     end
+  end
+
+  defp merge_complete_artifacts(out_dir, manifest) do
+    final_path = Path.join(out_dir, Artifact.adapted_tensors_file())
+
+    try do
+      emit_progress(out_dir, nil, %{
+        event: :artifact_merge_started,
+        selected_tensors: length(manifest["selected_tensors"])
+      })
+
+      tmp = final_path <> ".tmp"
+      tensors = merged_checkpoint_tensors(out_dir, manifest)
+
+      Safetensors.write!(tmp, tensors)
+      File.rename!(tmp, final_path)
+
+      merged =
+        manifest
+        |> Map.put("artifact_layout", Artifact.artifact_layout_single_file())
+        |> Map.put("adapted_tensors_sha256", Artifact.file_sha256!(final_path))
+        |> Map.put("updated_at", now_iso8601())
+
+      emit_progress(out_dir, nil, %{
+        event: :artifact_merge_complete,
+        path: final_path,
+        sha256: merged["adapted_tensors_sha256"]
+      })
+
+      Artifact.write_manifest!(out_dir, merged)
+      {:ok, merged}
+    rescue
+      e ->
+        mark_merge_failed(out_dir, manifest, final_path, e)
+    end
+  end
+
+  defp merged_checkpoint_tensors(out_dir, manifest) do
+    manifest["selected_tensors"]
+    |> Enum.map(fn entry ->
+      path = Map.fetch!(entry, "checkpoint_path")
+      key = Map.fetch!(entry, "artifact_key")
+      checkpoint = Safetensors.read!(Path.join(out_dir, path))
+      {key, Map.fetch!(checkpoint, key)}
+    end)
+    |> Map.new()
+  end
+
+  defp mark_merge_failed(out_dir, manifest, final_path, exception) do
+    failed_manifest =
+      manifest
+      |> Map.put("status", "failed")
+      |> Map.put("updated_at", now_iso8601())
+
+    emit_progress(out_dir, nil, %{
+      event: :artifact_merge_failed,
+      path: final_path,
+      reason: Exception.message(exception)
+    })
+
+    Artifact.write_manifest!(out_dir, failed_manifest)
+    {:error, {:adapted_merge_error, Exception.message(exception)}}
   end
 
   defp all_tensors_complete?(entries) when is_list(entries) do
@@ -1057,15 +1086,11 @@ defmodule TrinityCoordinator.Sakana.Exporter do
 
   defp log_event(out_dir, event) when is_binary(out_dir) and is_map(event) do
     path = Artifact.export_log_path(out_dir)
-
-    try do
-      encoded = Jason.encode!(event)
-      File.write!(path, encoded <> "\n", [:append])
-      :ok
-    rescue
-      _ ->
-        :ok
-    end
+    encoded = Jason.encode!(event)
+    File.write!(path, encoded <> "\n", [:append])
+    :ok
+  rescue
+    _ -> :ok
   end
 
   defp log_event(_out_dir, _event), do: :ok

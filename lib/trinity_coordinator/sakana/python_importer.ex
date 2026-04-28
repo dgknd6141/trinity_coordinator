@@ -47,41 +47,39 @@ defmodule TrinityCoordinator.Sakana.PythonImporter do
   @spec import_bundle(import_opts()) :: {:ok, map()} | {:error, term()}
   def import_bundle(opts) when is_list(opts) do
     opts = normalize_opts(opts)
-
-    result =
-      try do
-        with :ok <- prepare_output(opts),
-             {:ok, python_manifest} <- load_json(opts.python_manifest_path),
-             {:ok, reference_manifest} <- maybe_load_json(opts.reference_manifest_path),
-             {:ok, paths} <- resolve_bundle_paths(opts.source_dir, python_manifest),
-             {:ok, components} <- read_safetensors(paths.components),
-             {:ok, scales} <- read_safetensors(paths.scales),
-             {:ok, head_file} <- read_safetensors(paths.head),
-             {:ok, selected_entries} <- selected_entries(python_manifest, reference_manifest),
-             {:ok, targets} <- load_targets(opts),
-             {:ok, head_weights} <- normalize_router_head(head_file, python_manifest, opts.spec),
-             {:ok, tensor_results} <-
-               reconstruct_all(selected_entries, components, scales, targets, opts),
-             {:ok, manifest} <-
-               write_canonical_bundle(
-                 opts,
-                 python_manifest,
-                 reference_manifest,
-                 paths,
-                 head_weights,
-                 tensor_results
-               ) do
-          {:ok, manifest}
-        end
-      rescue
-        e -> {:error, {:python_importer_exception, Exception.message(e)}}
-      end
+    result = do_import_bundle(opts)
 
     emit(opts, %{event: :python_import_finished, result: elem(result, 0)})
     result
   end
 
   def import_bundle(_opts), do: {:error, :invalid_import_options}
+
+  defp do_import_bundle(opts) do
+    with :ok <- prepare_output(opts),
+         {:ok, python_manifest} <- load_json(opts.python_manifest_path),
+         {:ok, reference_manifest} <- maybe_load_json(opts.reference_manifest_path),
+         {:ok, paths} <- resolve_bundle_paths(opts.source_dir, python_manifest),
+         {:ok, components} <- read_safetensors(paths.components),
+         {:ok, scales} <- read_safetensors(paths.scales),
+         {:ok, head_file} <- read_safetensors(paths.head),
+         {:ok, selected_entries} <- selected_entries(python_manifest, reference_manifest),
+         {:ok, targets} <- load_targets(opts),
+         {:ok, head_weights} <- normalize_router_head(head_file, python_manifest, opts.spec),
+         {:ok, tensor_results} <-
+           reconstruct_all(selected_entries, components, scales, targets, opts) do
+      write_canonical_bundle(
+        opts,
+        python_manifest,
+        reference_manifest,
+        paths,
+        head_weights,
+        tensor_results
+      )
+    end
+  rescue
+    e -> {:error, {:python_importer_exception, Exception.message(e)}}
+  end
 
   defp normalize_opts(opts) do
     source_dir = Keyword.get(opts, :source_dir) || raise ArgumentError, "source_dir is required"
@@ -201,11 +199,9 @@ defmodule TrinityCoordinator.Sakana.PythonImporter do
   defp maybe_load_json(path), do: load_json(path)
 
   defp read_safetensors(path) do
-    try do
-      {:ok, Safetensors.read!(path)}
-    rescue
-      e -> {:error, {:safetensors_read_error, path, Exception.message(e)}}
-    end
+    {:ok, Safetensors.read!(path)}
+  rescue
+    e -> {:error, {:safetensors_read_error, path, Exception.message(e)}}
   end
 
   defp selected_entries(python_manifest, reference_manifest) do
@@ -252,38 +248,62 @@ defmodule TrinityCoordinator.Sakana.PythonImporter do
   defp normalize_selected_entry(entry, index, reference_by_source) when is_map(entry) do
     source = source_name(entry)
     reference = Map.get(reference_by_source, source, %{})
+    elixir_name = selected_elixir_name(entry, reference, source)
 
-    elixir_name =
-      deep_get(entry, ["elixir_name"]) ||
-        deep_get(entry, ["elixir_path"]) ||
-        deep_get(reference, ["elixir_name"]) ||
-        Map.get(@fallback_mapping, source)
+    validate_selected_names!(source, elixir_name, index)
 
-    unless is_binary(source) and source != "" do
-      raise ArgumentError, "selected tensor #{index} has no source_name"
-    end
-
-    unless is_binary(elixir_name) and elixir_name != "" do
-      raise ArgumentError, "selected tensor #{source} has no elixir_name mapping"
-    end
-
-    %{
-      index: index,
-      source_name: source,
-      elixir_name: elixir_name,
-      shape: normalize_shape(deep_get(entry, ["shape"]) || deep_get(reference, ["shape"])),
-      singular_values:
-        deep_get(entry, ["singular_values"]) || deep_get(reference, ["singular_values"]),
-      offset_start: deep_get(entry, ["offset_start"]) || deep_get(reference, ["offset_start"]),
-      offset_end: deep_get(entry, ["offset_end"]) || deep_get(reference, ["offset_end"]),
-      component_tensors: deep_get(entry, ["component_tensors"]) || %{},
-      scale_tensor: deep_get(entry, ["scale_tensor"]),
-      safe_key: deep_get(entry, ["safe_key"]) || deep_get(reference, ["safe_key"])
-    }
+    build_selected_entry(entry, reference, index, source, elixir_name)
   end
 
   defp normalize_selected_entry(other, index, _reference_by_source) do
     raise ArgumentError, "selected tensor #{index} is not a map: #{inspect(other)}"
+  end
+
+  defp selected_elixir_name(entry, reference, source) do
+    deep_get(entry, ["elixir_name"]) ||
+      deep_get(entry, ["elixir_path"]) ||
+      deep_get(reference, ["elixir_name"]) ||
+      Map.get(@fallback_mapping, source)
+  end
+
+  defp validate_selected_names!(source, elixir_name, index) do
+    validate_non_empty_binary!(source, "selected tensor #{index} has no source_name")
+
+    validate_non_empty_binary!(
+      elixir_name,
+      "selected tensor #{source} has no elixir_name mapping"
+    )
+  end
+
+  defp validate_non_empty_binary!(value, _message) when is_binary(value) and value != "", do: :ok
+
+  defp validate_non_empty_binary!(_value, message) do
+    raise ArgumentError, message
+  end
+
+  defp build_selected_entry(entry, reference, index, source, elixir_name) do
+    %{
+      index: index,
+      source_name: source,
+      elixir_name: elixir_name,
+      shape: selected_entry_shape(entry, reference),
+      singular_values: first_metadata_value(entry, reference, "singular_values"),
+      offset_start: first_metadata_value(entry, reference, "offset_start"),
+      offset_end: first_metadata_value(entry, reference, "offset_end"),
+      component_tensors: deep_get(entry, ["component_tensors"]) || %{},
+      scale_tensor: deep_get(entry, ["scale_tensor"]),
+      safe_key: first_metadata_value(entry, reference, "safe_key")
+    }
+  end
+
+  defp selected_entry_shape(entry, reference) do
+    entry
+    |> first_metadata_value(reference, "shape")
+    |> normalize_shape()
+  end
+
+  defp first_metadata_value(entry, reference, key) do
+    deep_get(entry, [key]) || deep_get(reference, [key])
   end
 
   defp source_name(entry) when is_map(entry) do
@@ -299,11 +319,13 @@ defmodule TrinityCoordinator.Sakana.PythonImporter do
   defp load_targets(%{load_qwen: true}) do
     Runtime.put_cuda_backend!()
 
-    with {:ok, {model_info, _tokenizer}} <- SLMProfile.load_profile(:qwen_coordinator) do
-      by_path = Map.new(SVD.flatten_tensor_entries(model_info.params), &{&1.path, &1})
-      {:ok, %{by_path: by_path, verified?: true}}
-    else
-      {:error, reason} -> {:error, {:qwen_target_load_error, reason}}
+    case SLMProfile.load_profile(:qwen_coordinator) do
+      {:ok, {model_info, _tokenizer}} ->
+        by_path = Map.new(SVD.flatten_tensor_entries(model_info.params), &{&1.path, &1})
+        {:ok, %{by_path: by_path, verified?: true}}
+
+      {:error, reason} ->
+        {:error, {:qwen_target_load_error, reason}}
     end
   end
 
@@ -391,11 +413,15 @@ defmodule TrinityCoordinator.Sakana.PythonImporter do
     safe_key = entry.safe_key || sanitize_python_key(entry.source_name)
 
     %{
-      u: deep_get(explicit, ["U"]) || deep_get(explicit, ["u"]) || "svd.U.#{safe_key}",
-      s: deep_get(explicit, ["S"]) || deep_get(explicit, ["s"]) || "svd.S.#{safe_key}",
-      v: deep_get(explicit, ["V"]) || deep_get(explicit, ["v"]) || "svd.V.#{safe_key}",
+      u: component_key(explicit, "U", "u", "svd.U.#{safe_key}"),
+      s: component_key(explicit, "S", "s", "svd.S.#{safe_key}"),
+      v: component_key(explicit, "V", "v", "svd.V.#{safe_key}"),
       scale: entry.scale_tensor || "svf.scale_offsets.#{safe_key}"
     }
+  end
+
+  defp component_key(explicit, uppercase_key, lowercase_key, fallback) do
+    deep_get(explicit, [uppercase_key]) || deep_get(explicit, [lowercase_key]) || fallback
   end
 
   defp fetch_tensor!(map, key, label) do
@@ -578,11 +604,7 @@ defmodule TrinityCoordinator.Sakana.PythonImporter do
   end
 
   defp source_bundle_hash(paths) do
-    joined =
-      paths
-      |> Map.values()
-      |> Enum.map(&Artifact.file_sha256!/1)
-      |> Enum.join(":")
+    joined = Enum.map_join(Map.values(paths), ":", &Artifact.file_sha256!/1)
 
     :crypto.hash(:sha256, joined)
     |> Base.encode16(case: :lower)
@@ -617,11 +639,9 @@ defmodule TrinityCoordinator.Sakana.PythonImporter do
   defp atom_key(key) when is_atom(key), do: key
 
   defp atom_key(key) when is_binary(key) do
-    try do
-      String.to_existing_atom(key)
-    rescue
-      ArgumentError -> nil
-    end
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
   end
 
   defp emit(%{progress: progress}, event) when is_function(progress, 1), do: progress.(event)

@@ -11,6 +11,18 @@ defmodule TrinityCoordinator.RoleInjector do
 
   @role_names %{0 => "Thinker", 1 => "Worker", 2 => "Verifier"}
 
+  @role_aliases %{
+    "0" => "Thinker",
+    "1" => "Worker",
+    "2" => "Verifier",
+    "t" => "Thinker",
+    "thinker" => "Thinker",
+    "v" => "Verifier",
+    "verifier" => "Verifier",
+    "w" => "Worker",
+    "worker" => "Worker"
+  }
+
   @roles %{
     "Thinker" =>
       "Analyze the current state and provide high-level guidance, plans, decompositions, or critiques. Do not present unchecked final answers unless the transcript already contains enough evidence.",
@@ -42,18 +54,8 @@ defmodule TrinityCoordinator.RoleInjector do
   end
 
   def role_name(role) when is_binary(role) do
-    case String.downcase(String.trim(role)) do
-      "thinker" -> "Thinker"
-      "t" -> "Thinker"
-      "worker" -> "Worker"
-      "w" -> "Worker"
-      "verifier" -> "Verifier"
-      "v" -> "Verifier"
-      "0" -> "Thinker"
-      "1" -> "Worker"
-      "2" -> "Verifier"
-      _ -> role
-    end
+    normalized = role |> String.trim() |> String.downcase()
+    Map.get(@role_aliases, normalized, role)
   end
 
   def role_name(_), do: "UnknownRole"
