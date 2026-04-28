@@ -40,6 +40,7 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
         reference_manifest_path: @reference_manifest_path,
         components_dir: nil,
         python_report_path: nil,
+        stage_dir: nil,
         native?: true,
         require_cuda: true
       )
@@ -54,6 +55,7 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
     sample = Map.fetch!(reference, "sample_adapted_tensor")
     python_report = maybe_load_json(opts[:python_report_path])
     python_baseline = current_python_baseline(python_report)
+    python_stage_tensors = python_report |> python_stage_file() |> maybe_read_safetensors()
 
     {:ok, {model_info, _tokenizer}} = SLMProfile.load_profile(:qwen_coordinator)
     selected = qwen_selected_tensors(model_info)
@@ -91,7 +93,9 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
         sample,
         compute_backend,
         python_baseline,
-        component_metadata
+        component_metadata,
+        python_stage_tensors,
+        opts[:stage_dir]
       )
 
     %{
@@ -102,7 +106,8 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
         "router_vector" => opts[:router_vector_path],
         "reference_manifest" => opts[:reference_manifest_path],
         "components_dir" => opts[:components_dir],
-        "python_report" => opts[:python_report_path]
+        "python_report" => opts[:python_report_path],
+        "stage_dir" => opts[:stage_dir]
       },
       "reference" => %{
         "source_name" => sample["source_name"],
@@ -261,7 +266,9 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
          _sample,
          _compute_backend,
          _python_baseline,
-         _metadata
+         _metadata,
+         _python_stage_tensors,
+         _stage_dir
        ),
        do: nil
 
@@ -271,7 +278,9 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
          _sample,
          _compute_backend,
          _python_baseline,
-         _metadata
+         _metadata,
+         _python_stage_tensors,
+         _stage_dir
        ),
        do: nil
 
@@ -281,7 +290,9 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
          sample,
          compute_backend,
          python_baseline,
-         metadata
+         metadata,
+         python_stage_tensors,
+         stage_dir
        ) do
     component_path = Path.join(components_dir, @component_file)
     scale_path = Path.join(components_dir, @scale_file)
@@ -294,18 +305,19 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
       s = fetch_tensor!(components, "svd.S.#{safe_key}") |> host_snapshot()
       v = fetch_tensor!(components, "svd.V.#{safe_key}") |> host_snapshot()
       offsets = fetch_tensor!(scales, "svf.scale_offsets.#{safe_key}") |> host_snapshot()
+      decomp_host = %{u: u, s: s, v: v}
+      stage_context = %{python_tensors: python_stage_tensors, dir: stage_dir}
 
       for compute_target <- semantic_compute_targets(compute_backend),
           layout <- semantic_layouts(metadata) do
         layout
         |> safe_semantic_variant(
-          u,
-          s,
-          v,
+          decomp_host,
           offsets,
           source_host,
           sample,
-          compute_target
+          compute_target,
+          stage_context
         )
         |> add_python_match(python_baseline)
       end
@@ -318,8 +330,24 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
     end
   end
 
-  defp safe_semantic_variant(layout, u, s, v, offsets, source_host, sample, compute_target) do
-    semantic_variant(layout, u, s, v, offsets, source_host, sample, compute_target)
+  defp safe_semantic_variant(
+         layout,
+         decomp_host,
+         offsets,
+         source_host,
+         sample,
+         compute_target,
+         stage_context
+       ) do
+    semantic_variant(
+      layout,
+      decomp_host,
+      offsets,
+      source_host,
+      sample,
+      compute_target,
+      stage_context
+    )
   rescue
     e ->
       %{
@@ -328,20 +356,21 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
         "compute_backend" => compute_target.label,
         "v_layout" => Atom.to_string(layout),
         "error" => Exception.message(e),
+        "error_stacktrace" => Exception.format(:error, e, __STACKTRACE__),
         "matches_expected" => false
       }
   end
 
   defp semantic_variant(
          layout,
-         u_host,
-         s_host,
-         v_host,
+         decomp_host,
          offsets_host,
          source_host,
          sample,
-         compute_target
+         compute_target,
+         stage_context
        ) do
+    %{u: u_host, s: s_host, v: v_host} = decomp_host
     typed_offsets_host = Nx.as_type(offsets_host, Nx.type(s_host)) |> host_snapshot()
 
     zero_offsets_host =
@@ -380,6 +409,28 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
     expected = sample["sample_reconstructed_bf16_sha256"]
     observed = Artifact.tensor_sha256(final)
 
+    {_stage_tensors, stage_file, stage_checks} =
+      if layout == :torch_v and compute_target.label == "host_binary" do
+        stage_tensors =
+          semantic_stage_tensors(
+            s_host,
+            offsets_host,
+            source_host,
+            sample,
+            zero_reconstruct_host,
+            sample_reconstruct_f32_host
+          )
+
+        stage_checks = compare_stage_tensors(stage_tensors, stage_context.python_tensors)
+
+        stage_file =
+          maybe_write_stage_tensors(stage_context.dir, compute_target, layout, stage_tensors)
+
+        {stage_tensors, stage_file, stage_checks}
+      else
+        {%{}, nil, []}
+      end
+
     %{
       "label" => semantic_label(layout, compute_target),
       "svd_provider" => "python_components_safetensors",
@@ -393,6 +444,13 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
         max_abs_error(zero_reconstruct_host, Nx.as_type(source_host, :f32)),
       "final_f32_before_bf16" => tensor_summary(final_f32, prefix_count: 16),
       "final" => tensor_summary(final, prefix_count: 16),
+      "stage_debug" => %{
+        "schema" => "trinity_sakana_elixir_stage_debug.v1",
+        "stage_tensor_file" => stage_file,
+        "compared_to_python_stage_tensors" => not is_nil(stage_context.python_tensors),
+        "functional_parity_passed" => stage_checks_passed?(stage_checks),
+        "checks" => stage_checks
+      },
       "observed_bf16_sha256" => observed,
       "expected_bf16_sha256" => expected,
       "matches_expected" => observed == expected
@@ -409,6 +467,162 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
     device_offsets = device_copy(offsets_host, compute_backend)
     SVD.reconstruct(device_decomp, device_offsets, opts)
   end
+
+  defp semantic_stage_tensors(s, offsets, source, sample, zero_source_f32, adapted_source_f32) do
+    offsets = Nx.as_type(offsets, Nx.type(s)) |> host_snapshot()
+    scaled_s = Nx.multiply(s, Nx.add(offsets, 1)) |> host_snapshot()
+    normalization = Nx.divide(Nx.sum(s), Nx.sum(scaled_s)) |> host_snapshot()
+
+    final_f32 =
+      orient_to_shape!(adapted_source_f32, sample["sample_reconstructed_shape"], "stage_final")
+      |> Nx.as_type(:f32)
+      |> host_snapshot()
+
+    %{
+      "stage.source_f32" => Nx.as_type(source, :f32) |> host_snapshot(),
+      "stage.offsets_f32" => Nx.as_type(offsets, :f32) |> host_snapshot(),
+      "stage.scaled_s" => Nx.as_type(scaled_s, :f32) |> host_snapshot(),
+      "stage.normalization" =>
+        normalization |> Nx.reshape({1}) |> Nx.as_type(:f32) |> host_snapshot(),
+      "stage.adapted_source_f32" => Nx.as_type(adapted_source_f32, :f32) |> host_snapshot(),
+      "stage.final_f32" => final_f32,
+      "stage.final_bf16" => Nx.as_type(final_f32, :bf16) |> host_snapshot(),
+      "stage.zero_source_f32" => Nx.as_type(zero_source_f32, :f32) |> host_snapshot()
+    }
+  end
+
+  defp maybe_write_stage_tensors(nil, _compute_target, _layout, _stage_tensors), do: nil
+  defp maybe_write_stage_tensors("", _compute_target, _layout, _stage_tensors), do: nil
+
+  defp maybe_write_stage_tensors(stage_dir, compute_target, layout, stage_tensors) do
+    File.mkdir_p!(stage_dir)
+    file = "trinity_svf_elixir_stage_#{compute_target.label}_#{layout}.safetensors"
+    path = Path.join(stage_dir, file)
+
+    payload =
+      Map.new(stage_tensors, fn {key, tensor} ->
+        {key, host_snapshot(tensor)}
+      end)
+
+    Safetensors.write!(path, payload)
+    path
+  end
+
+  defp compare_stage_tensors(_stage_tensors, nil), do: []
+
+  defp compare_stage_tensors(stage_tensors, python_stage_tensors) do
+    stage_tensors
+    |> Enum.sort_by(fn {key, _tensor} -> key end)
+    |> Enum.map(fn {key, tensor} ->
+      case Map.fetch(python_stage_tensors, key) do
+        {:ok, python_tensor} -> stage_check(key, tensor, python_tensor)
+        :error -> missing_stage_check(key)
+      end
+    end)
+  end
+
+  defp stage_check(key, elixir_tensor, python_tensor) do
+    tolerance = stage_tolerance(key)
+    shape_match = Nx.shape(elixir_tensor) == Nx.shape(python_tensor)
+    byte_match = Artifact.tensor_sha256(elixir_tensor) == Artifact.tensor_sha256(python_tensor)
+
+    if shape_match do
+      stage_value_check(key, elixir_tensor, python_tensor, tolerance, byte_match)
+    else
+      %{
+        "stage" => key,
+        "required_for_functional_parity" => tolerance.required?,
+        "byte_match" => byte_match,
+        "shape_match" => false,
+        "elixir" => tensor_summary(elixir_tensor, prefix_count: 8),
+        "python" => tensor_summary(python_tensor, prefix_count: 8),
+        "max_abs_error" => nil,
+        "mean_abs_error" => nil,
+        "mismatched_element_count" => nil,
+        "tolerance" => %{
+          "max_abs_error" => tolerance.max_abs,
+          "mean_abs_error" => tolerance.mean_abs
+        },
+        "functional_passed" => false
+      }
+    end
+  end
+
+  defp stage_value_check(key, elixir_tensor, python_tensor, tolerance, byte_match) do
+    elixir_f32 = Nx.as_type(elixir_tensor, :f32)
+    python_f32 = Nx.as_type(python_tensor, :f32)
+    abs_diff = Nx.abs(Nx.subtract(elixir_f32, python_f32))
+    max_abs = scalar(Nx.reduce_max(abs_diff))
+    mean_abs = scalar(Nx.divide(Nx.sum(abs_diff), Nx.tensor(Nx.size(abs_diff), type: :f32)))
+    mismatch_count = scalar(Nx.sum(Nx.as_type(Nx.not_equal(elixir_tensor, python_tensor), :s64)))
+
+    %{
+      "stage" => key,
+      "required_for_functional_parity" => tolerance.required?,
+      "byte_match" => byte_match,
+      "shape_match" => true,
+      "elixir" => tensor_summary(elixir_tensor, prefix_count: 8),
+      "python" => tensor_summary(python_tensor, prefix_count: 8),
+      "max_abs_error" => max_abs,
+      "mean_abs_error" => mean_abs,
+      "mismatched_element_count" => mismatch_count,
+      "tolerance" => %{
+        "max_abs_error" => tolerance.max_abs,
+        "mean_abs_error" => tolerance.mean_abs
+      },
+      "functional_passed" => max_abs <= tolerance.max_abs and mean_abs <= tolerance.mean_abs
+    }
+  end
+
+  defp missing_stage_check(key) do
+    tolerance = stage_tolerance(key)
+
+    %{
+      "stage" => key,
+      "required_for_functional_parity" => tolerance.required?,
+      "byte_match" => false,
+      "shape_match" => false,
+      "missing_python_stage" => true,
+      "functional_passed" => not tolerance.required?
+    }
+  end
+
+  defp stage_checks_passed?([]), do: nil
+
+  defp stage_checks_passed?(checks) do
+    Enum.all?(checks, fn check ->
+      not check["required_for_functional_parity"] or check["functional_passed"]
+    end)
+  end
+
+  defp stage_tolerance("stage.source_f32"), do: %{required?: true, max_abs: 0.0, mean_abs: 0.0}
+  defp stage_tolerance("stage.offsets_f32"), do: %{required?: true, max_abs: 0.0, mean_abs: 0.0}
+
+  defp stage_tolerance("stage.scaled_s"),
+    do: %{required?: true, max_abs: 1.0e-6, mean_abs: 1.0e-8}
+
+  defp stage_tolerance("stage.normalization"),
+    do: %{required?: true, max_abs: 1.0e-6, mean_abs: 1.0e-6}
+
+  defp stage_tolerance("stage.u_scaled"),
+    do: %{required?: true, max_abs: 1.0e-6, mean_abs: 1.0e-8}
+
+  defp stage_tolerance("stage.zero_source_f32"),
+    do: %{required?: true, max_abs: 1.0e-3, mean_abs: 1.0e-5}
+
+  defp stage_tolerance("stage.matmul_pre_norm"),
+    do: %{required?: true, max_abs: 1.0e-3, mean_abs: 1.0e-5}
+
+  defp stage_tolerance("stage.adapted_source_f32"),
+    do: %{required?: true, max_abs: 1.0e-3, mean_abs: 1.0e-5}
+
+  defp stage_tolerance("stage.final_f32"),
+    do: %{required?: true, max_abs: 1.0e-3, mean_abs: 1.0e-5}
+
+  defp stage_tolerance("stage.final_bf16"),
+    do: %{required?: false, max_abs: 1.0e-3, mean_abs: 1.0e-5}
+
+  defp stage_tolerance(_key), do: %{required?: false, max_abs: 1.0e-3, mean_abs: 1.0e-5}
 
   defp singular_summary(s_host, offsets_host) do
     offsets_host = Nx.as_type(offsets_host, Nx.type(s_host)) |> host_snapshot()
@@ -490,6 +704,26 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
 
     if File.exists?(path) do
       load_json!(path)
+    else
+      nil
+    end
+  end
+
+  defp python_stage_file(nil), do: nil
+
+  defp python_stage_file(report) when is_map(report) do
+    get_in(report, ["stage_debug", "stage_tensor_file"]) ||
+      get_in(report, ["inputs", "stage_tensor_file"])
+  end
+
+  defp maybe_read_safetensors(nil), do: nil
+  defp maybe_read_safetensors(""), do: nil
+
+  defp maybe_read_safetensors(path) when is_binary(path) do
+    if File.exists?(path) do
+      path
+      |> Safetensors.read!()
+      |> Map.new(fn {key, tensor} -> {key, host_snapshot(tensor)} end)
     else
       nil
     end
@@ -701,6 +935,7 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
 
   defp normalize_json(value) when is_list(value), do: Enum.map(value, &normalize_json/1)
   defp normalize_json(value) when is_tuple(value), do: Tuple.to_list(value)
+  defp normalize_json(value) when is_boolean(value) or is_nil(value), do: value
   defp normalize_json(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_json(value), do: value
 end

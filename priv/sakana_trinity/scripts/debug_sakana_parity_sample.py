@@ -16,6 +16,9 @@ This script therefore reports both:
 
 When --write-components-dir is enabled, the component bundle includes a small
 JSON metadata file describing whether the stored reference hash was reproduced.
+It also writes a stage tensor bundle by default so Elixir can compare the source
+tensor, offsets, scaled singular values, reconstruction tensors, and final bf16
+bytes against Python safetensors readback without relying on a single hash.
 """
 
 from __future__ import annotations
@@ -38,6 +41,7 @@ DEFAULT_REFERENCE = Path("priv/sakana_trinity/reference/sakana_python_reference_
 DEFAULT_ROUTER_VECTOR_NPY = Path("priv/sakana_trinity/artifacts/sakana_model_iter_60.npy")
 DEFAULT_OUT = Path("tmp/sakana_parity/python_sample_trace.json")
 DEFAULT_COMPONENT_DIR = Path("tmp/sakana_parity/python_components")
+STAGE_FILE = "trinity_svf_stage_debug.safetensors"
 
 
 def parse_args() -> argparse.Namespace:
@@ -51,6 +55,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--write-components-dir", type=Path, default=DEFAULT_COMPONENT_DIR)
     parser.add_argument("--readback-components-dir", type=Path, default=None,
                         help="Optional component directory to read back and reconstruct. Defaults to --write-components-dir when components are written.")
+    parser.add_argument("--no-write-stage-tensors", action="store_true",
+                        help="Do not write the Python stage tensor bundle used for side-by-side parity checks.")
     parser.add_argument("--no-write-components", action="store_true")
     parser.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
     parser.add_argument("--vector-dtype", default="float32", choices=["float32", "float64"])
@@ -454,7 +460,7 @@ def build_readback_variants(
     source_f32: torch.Tensor,
     sample: dict[str, Any],
     device: str,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, torch.Tensor]]:
     components, offsets = load_component_bundle(components_dir, source_name, device)
     u = components["u"].to(torch.float32)
     s = components["s"].to(torch.float32)
@@ -490,7 +496,47 @@ def build_readback_variants(
             "vh",
         ),
     ]
-    return variants, component_bundle_summary(components, offsets)
+    stage_tensors = torch_v_stage_tensors(u, s, v, offsets, source_f32, sample)
+    return variants, component_bundle_summary(components, offsets), stage_tensors
+
+
+def torch_v_stage_tensors(
+    u: torch.Tensor,
+    s: torch.Tensor,
+    v: torch.Tensor,
+    offsets: torch.Tensor,
+    source_f32: torch.Tensor,
+    sample: dict[str, Any],
+) -> dict[str, torch.Tensor]:
+    offsets = offsets.to(dtype=s.dtype, device=s.device)
+    scaled_s = s * (1.0 + offsets)
+    normalization = (s.sum() / scaled_s.sum()).reshape(1)
+    u_scaled = u * scaled_s.reshape(1, -1)
+    matmul_pre_norm = u_scaled @ v.T
+    adapted_source_f32 = matmul_pre_norm * normalization.reshape(())
+    final_f32 = orient_to_shape(adapted_source_f32, sample["sample_reconstructed_shape"], "python_stage_final")
+    final_bf16 = final_f32.to(torch.bfloat16).contiguous()
+    zero_source_f32 = (u * s.reshape(1, -1)) @ v.T
+
+    return {
+        "stage.source_f32": source_f32.to(torch.float32).contiguous(),
+        "stage.offsets_f32": offsets.to(torch.float32).contiguous(),
+        "stage.scaled_s": scaled_s.to(torch.float32).contiguous(),
+        "stage.normalization": normalization.to(torch.float32).contiguous(),
+        "stage.u_scaled": u_scaled.to(torch.float32).contiguous(),
+        "stage.matmul_pre_norm": matmul_pre_norm.to(torch.float32).contiguous(),
+        "stage.adapted_source_f32": adapted_source_f32.to(torch.float32).contiguous(),
+        "stage.final_f32": final_f32.to(torch.float32).contiguous(),
+        "stage.final_bf16": final_bf16.contiguous(),
+        "stage.zero_source_f32": zero_source_f32.to(torch.float32).contiguous(),
+    }
+
+
+def write_stage_bundle(out_dir: Path, stage_tensors: dict[str, torch.Tensor]) -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / STAGE_FILE
+    save_file({key: value.detach().cpu().contiguous() for key, value in stage_tensors.items()}, str(path))
+    return path
 
 
 def main() -> None:
@@ -517,6 +563,8 @@ def main() -> None:
     svd_components = load_svd_weight_components(args.svd_weights, source_name, args.device) if args.svd_weights else None
     variants, component_bundle, component_source = build_variants(source_f32, offsets, sample, svd_components)
     component_readback_summary = None
+    stage_tensors: dict[str, torch.Tensor] = {}
+    stage_path: Path | None = None
 
     in_memory_baseline = select_baseline_variant(variants, expected, component_source)
     component_metadata = {
@@ -539,7 +587,7 @@ def main() -> None:
         readback_dir = args.write_components_dir
 
     if readback_dir is not None:
-        readback_variants, component_readback_summary = build_readback_variants(
+        readback_variants, component_readback_summary, stage_tensors = build_readback_variants(
             readback_dir,
             source_name,
             source_f32,
@@ -547,6 +595,9 @@ def main() -> None:
             args.device,
         )
         variants.extend(readback_variants)
+
+        if not args.no_write_stage_tensors:
+            stage_path = write_stage_bundle(readback_dir, stage_tensors)
 
     baseline = select_baseline_variant(variants, expected, component_source)
     reference_hash_reproducible = any(v["matches_expected"] for v in variants)
@@ -580,12 +631,24 @@ def main() -> None:
             "write_components_dir": None if args.no_write_components else str(args.write_components_dir),
             "component_source_written": None if args.no_write_components else component_source,
             "readback_components_dir": None if readback_dir is None else str(readback_dir),
+            "stage_tensor_file": None if stage_path is None else str(stage_path),
         },
         "source_tensor": tensor_summary(source, 16),
         "source_tensor_f32_svd_input": tensor_summary(source_f32, 16),
         "scale_offsets": tensor_summary(offsets, 16),
         "component_bundle_before_write": component_bundle_summary(component_bundle, offsets),
         "component_bundle_readback": component_readback_summary,
+        "stage_debug": {
+            "schema": "trinity_sakana_stage_debug.v1",
+            "baseline_label": "python_safetensors_readback_torch_v_final_bf16",
+            "stage_tensor_file": None if stage_path is None else str(stage_path),
+            "stage_keys": sorted(stage_tensors.keys()),
+            "interpretation": (
+                "These tensors are emitted from Python safetensors readback. "
+                "Use them as the stage-by-stage baseline for Elixir semantic parity. "
+                "Exact final bf16 byte equality is aspirational; functional correctness is determined by required stage tolerances."
+            ),
+        },
         "variants": variants,
     }
 
@@ -595,6 +658,9 @@ def main() -> None:
     print(f"wrote Python parity report: {args.out}")
     if not args.no_write_components:
         print(f"wrote sample Python components: {args.write_components_dir}")
+    if stage_path is not None:
+        print(f"wrote Python stage tensor bundle: {stage_path}")
+        print("stage baseline: Python safetensors readback; compare with --strict-stage-tolerances")
     print(f"stored_reference_bf16_sha256: {expected}")
     print(f"reference_hash_reproducible: {reference_hash_reproducible}")
     print(f"current_python_baseline: {baseline['label']} {baseline['observed_bf16_sha256']}")

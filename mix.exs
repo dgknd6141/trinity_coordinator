@@ -80,6 +80,9 @@ defmodule TrinityCoordinator.MixProject do
       extras: [
         "CHANGELOG.md",
         "README.md",
+        "docs/sakana_svd_byte_match_rigor_plan.md",
+        "docs/sakana_svd_parity_debug_checklist.md",
+        "docs/elixir_svd_decomposition.md",
         "docs/production_qwen_slm_profile.md",
         "docs/sep_cma_es_training.md",
         "docs/coordination_head_variants.md",
@@ -90,7 +93,7 @@ defmodule TrinityCoordinator.MixProject do
       ],
       groups_for_extras: [
         Guides:
-          ~r/README|production_qwen_slm_profile|sep_cma_es_training|coordination_head_variants|trace_persistence|configurable_provider_pools|benchmark_harnesses|provider_smoke_tests/
+          ~r/README|sakana_svd_byte_match_rigor_plan|sakana_svd_parity_debug_checklist|elixir_svd_decomposition|production_qwen_slm_profile|sep_cma_es_training|coordination_head_variants|trace_persistence|configurable_provider_pools|benchmark_harnesses|provider_smoke_tests/
       ],
       groups_for_modules: [
         Core: [

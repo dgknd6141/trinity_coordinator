@@ -16,11 +16,13 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySample do
         --semantic-only \
         --components-dir tmp/sakana_parity/python_components \
         --python-report tmp/sakana_parity/python_sample_trace.json \
+        --stage-dir tmp/sakana_parity/elixir_stages \
         --out tmp/sakana_parity/elixir_sample_trace.json
 
   Pass `--semantic-only` while debugging Python-component parity. It skips the
   native `Nx.LinAlg.svd/2` diagnostics and avoids the expensive CUDA SVD
-  compilation path.
+  compilation path. Pass `--stage-dir` to write Elixir stage tensors that can be
+  compared side-by-side with Python's stage tensor bundle.
   """
 
   use Mix.Task
@@ -52,6 +54,7 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySample do
           ),
         components_dir: Keyword.get(opts, :components_dir),
         python_report_path: Keyword.get(opts, :python_report),
+        stage_dir: Keyword.get(opts, :stage_dir),
         native?: Keyword.fetch!(opts, :native?),
         require_cuda: not Keyword.get(opts, :no_cuda, false)
       )
@@ -71,6 +74,7 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySample do
           out: :string,
           components_dir: :string,
           python_report: :string,
+          stage_dir: :string,
           router_vector: :string,
           reference: :string,
           no_cuda: :boolean,
@@ -123,6 +127,8 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySample do
           Mix.shell().info(
             "semantic #{variant["label"]}: #{variant["observed_bf16_sha256"]} match_stored=#{variant["matches_expected"]} match_python=#{variant["matches_python_current"]} zero_error=#{variant["zero_offset_max_abs_error_vs_source"]}"
           )
+
+          print_stage_summary(variant)
         end)
 
       nil ->
@@ -132,4 +138,38 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySample do
         Mix.shell().info("Semantic component status: #{inspect(other)}")
     end
   end
+
+  defp print_stage_summary(%{"stage_debug" => %{"checks" => checks}} = variant)
+       when is_list(checks) and checks != [] do
+    required_failed =
+      Enum.filter(checks, fn check ->
+        check["required_for_functional_parity"] and not check["functional_passed"]
+      end)
+
+    first_non_byte_match =
+      Enum.find(checks, fn check ->
+        check["shape_match"] and not check["byte_match"]
+      end)
+
+    Mix.shell().info(
+      "  stage_checks=#{length(checks)} functional_parity=#{inspect(required_failed == [])} first_non_byte_match=#{stage_label(first_non_byte_match)}"
+    )
+
+    Enum.each(required_failed, fn check ->
+      Mix.shell().info(
+        "  required_stage_failed #{check["stage"]}: max_abs=#{check["max_abs_error"]} mean_abs=#{check["mean_abs_error"]} tolerance=#{inspect(check["tolerance"])}"
+      )
+    end)
+
+    stage_file = get_in(variant, ["stage_debug", "stage_tensor_file"])
+
+    if stage_file do
+      Mix.shell().info("  stage_tensor_file=#{stage_file}")
+    end
+  end
+
+  defp print_stage_summary(_variant), do: :ok
+
+  defp stage_label(nil), do: "(none)"
+  defp stage_label(check), do: check["stage"]
 end

@@ -17,6 +17,7 @@ This writes:
 - `tmp/sakana_parity/python_components/trinity_svf_components.safetensors`
 - `tmp/sakana_parity/python_components/trinity_svf_scale_offsets.safetensors`
 - `tmp/sakana_parity/python_components/trinity_svf_debug_manifest.json`
+- `tmp/sakana_parity/python_components/trinity_svf_stage_debug.safetensors`
 
 The report separates three concepts:
 
@@ -33,6 +34,11 @@ basis.
 The readback variant is the decisive export check. If
 `python_safetensors_readback_torch_v_final_bf16` matches the recomputed Python
 variant, the component files are not the cause of an Elixir mismatch.
+
+The stage tensor bundle is the side-by-side correctness contract. It contains
+source tensor bytes, offsets, scaled singular values, normalization,
+reconstruction tensors, and final `bf16` bytes from Python safetensors readback.
+Use it to isolate the first stage where Elixir stops byte-matching Python.
 
 ## 1a. Strict historical reproduction, when original SVD weights are available
 
@@ -57,6 +63,7 @@ XLA_TARGET=cuda12 mix trinity.sakana.parity_sample \
   --semantic-only \
   --components-dir tmp/sakana_parity/python_components \
   --python-report tmp/sakana_parity/python_sample_trace.json \
+  --stage-dir tmp/sakana_parity/elixir_stages \
   --out tmp/sakana_parity/elixir_sample_trace.json
 ```
 
@@ -69,6 +76,15 @@ reconstruction so EXLA donated buffers cannot crash the report. Semantic
 variants include both the final `bf16` tensor summary and a
 `final_f32_before_bf16` summary so formula/accumulation differences can be
 separated from final byte-hash rounding.
+
+With `--stage-dir`, the Elixir tracer writes:
+
+- `tmp/sakana_parity/elixir_stages/trinity_svf_elixir_stage_host_binary_torch_v.safetensors`
+
+It also embeds stage checks in the Elixir JSON report when the Python report
+points at a Python stage bundle. The host `torch_v` semantic path is the
+functional-parity target because it consumes the exact Python `U/S/V` components
+and avoids native SVD basis differences.
 
 For semantic Python components, the tracer now emits both host/BinaryBackend and
 device/EXLA variants. Use the host/BinaryBackend semantic variant for strict
@@ -92,6 +108,32 @@ python3 priv/sakana_trinity/scripts/compare_sakana_parity_reports.py \
   tmp/sakana_parity/python_sample_trace.json \
   tmp/sakana_parity/elixir_sample_trace.json
 ```
+
+For the rigorous functional gate:
+
+```bash
+python3 priv/sakana_trinity/scripts/compare_sakana_parity_reports.py \
+  --strict-stage-tolerances \
+  tmp/sakana_parity/python_sample_trace.json \
+  tmp/sakana_parity/elixir_sample_trace.json
+```
+
+This prints:
+
+- exact-vs-numeric stage status for every compared stage;
+- the first practical byte-match failure surface;
+- whether all required stages pass their declared tolerances;
+- top differing flat indices and values for large stage tensors.
+
+Current interpretation rules:
+
+- `stage.source_f32`, `stage.offsets_f32`, and `stage.scaled_s` should
+  byte-match.
+- `stage.normalization`, `stage.zero_source_f32`,
+  `stage.adapted_source_f32`, and `stage.final_f32` must pass numeric
+  tolerances.
+- `stage.final_bf16` byte equality is aspirational. A final `bf16` mismatch is
+  not a functional failure when all required f32 stages pass.
 
 For opt-in exact checks:
 

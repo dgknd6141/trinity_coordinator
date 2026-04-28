@@ -155,6 +155,12 @@ Implemented and tested:
   SVD components against Elixir reconstruction without recompiling native Nx
   SVD diagnostics. Use this for the active parity loop before running the slower
   native-SVD report.
+- Stage-level SVD parity diagnostics: the Python harness writes a safetensors
+  bundle of source, offsets, scaled singular values, reconstruction tensors, and
+  final `bf16` bytes; the Elixir harness can write comparable host `torch_v`
+  stages with `--stage-dir`; and the comparator enforces required mathematical
+  tolerances separately from aspirational final byte-hash equality. See
+  [Sakana SVD Byte-Match And Functional-Parity Rigor Plan](docs/sakana_svd_byte_match_rigor_plan.md).
 - `TrinityCoordinator.Sakana.Artifact`: validates artifact manifests and loads
   persisted artifacts back into the Qwen params tree and routing head.
 - `Trace.JSONL` and `Trace.Hash`: serialize tensors by preserving original
@@ -418,12 +424,28 @@ XLA_TARGET=cuda12 mix trinity.sakana.parity_sample \
   --semantic-only \
   --components-dir tmp/sakana_parity/python_components \
   --python-report tmp/sakana_parity/python_sample_trace.json \
+  --stage-dir tmp/sakana_parity/elixir_stages \
   --out tmp/sakana_parity/elixir_sample_trace.json
 ```
 
 Omit `--semantic-only` only when native Nx SVD diagnostics are explicitly needed;
 that path can trigger long CUDA compilation and is not the default oracle for
 PyTorch component parity.
+
+Then compare stage-level functional parity:
+
+```bash
+python3 priv/sakana_trinity/scripts/compare_sakana_parity_reports.py \
+  --strict-stage-tolerances \
+  tmp/sakana_parity/python_sample_trace.json \
+  tmp/sakana_parity/elixir_sample_trace.json
+```
+
+`--strict-stage-tolerances` is the required correctness gate for the current
+semantic port. It checks source/component identity, scalar formula stages, and
+large reconstruction tensors with explicit tolerances. Exact final `bf16` hash
+matching remains aspirational and is checked separately with
+`--strict-current-python`.
 
 ### `TrinityCoordinator.Sakana.Artifact`
 

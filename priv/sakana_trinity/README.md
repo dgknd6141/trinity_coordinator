@@ -68,9 +68,30 @@ It now reconstructs both from in-memory Python SVD components and from the exact
 safetensors files written for Elixir. Matching Python recomputation/readback
 hashes prove the component export did not alter `U/S/V` or scale offsets.
 
+The same Python script also writes
+`trinity_svf_stage_debug.safetensors` by default. That file is the Python
+stage-by-stage baseline for the semantic port: source tensor, offsets, scaled
+singular values, normalization, reconstruction tensors, and final `bf16` bytes.
+
 For Elixir-side semantic checks, pass `--semantic-only` to
 `mix trinity.sakana.parity_sample` while debugging Python-component parity. That
 skips native Nx SVD diagnostics and avoids the expensive CUDA SVD compilation
 path. Native SVD diagnostics are useful only when investigating Nx's SVD basis;
 they are not expected to byte-match PyTorch adapted hashes under nonzero SVF
 offsets.
+
+Pass `--stage-dir tmp/sakana_parity/elixir_stages` to write the comparable
+Elixir host `torch_v` stage bundle and embed stage checks in the Elixir report.
+Then run:
+
+```sh
+python3 priv/sakana_trinity/scripts/compare_sakana_parity_reports.py \
+  --strict-stage-tolerances \
+  tmp/sakana_parity/python_sample_trace.json \
+  tmp/sakana_parity/elixir_sample_trace.json
+```
+
+Use `--strict-stage-tolerances` as the required mathematical/functionality gate.
+Use `--strict-current-python` only for the aspirational final `bf16` byte-match
+target. The detailed policy and checklist live in
+`docs/sakana_svd_byte_match_rigor_plan.md`.

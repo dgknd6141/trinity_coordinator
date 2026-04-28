@@ -31,6 +31,11 @@
 - Elixir `--semantic-only` skips native SVD variants and completes without the long native SVD ptxas compile sequence.
 - Latest Elixir semantic `torch_v` produced `74dc61d765c95e80ca7298b6e97f29a4fd76e2ae4bfb348b2abbffcbc5e0dff8`, so the remaining exact-hash gap is not caused by Python component export/readback.
 - EXLA precision probes (`:default`, `:high`, `:highest`, and f64+`:highest`) did not reproduce the Python `5aaa24...` hash. Treat the remaining exact-hash difference as framework GEMM accumulation/rounding until a contrary stage-level diff proves a formula bug.
+- Stage diagnostics now isolate the current byte mismatch:
+  - `stage.source_f32`, `stage.offsets_f32`, and `stage.scaled_s` byte-match Python.
+  - `stage.normalization` differs by about `5.96e-8`, within scalar tolerance.
+  - `stage.zero_source_f32`, `stage.adapted_source_f32`, and `stage.final_f32` pass required reconstruction tolerances.
+  - `stage.final_bf16` does not byte-match Python and remains an aspirational byte target, not the required functional gate.
 
 ## Completed Implementation
 
@@ -49,8 +54,15 @@
   - [x] add `native?: false` option in `ParityTrace.sample_report!/1`;
   - [x] add `--semantic-only` and `--skip-native-svd` to `mix trinity.sakana.parity_sample`;
   - [x] ensure `native_elixir_svd_variants` is an empty list without invoking `Nx.LinAlg.svd/2`.
+- [x] Added rigorous stage-level functional checks:
+  - [x] Python writes `trinity_svf_stage_debug.safetensors`;
+  - [x] Elixir accepts `--stage-dir` and writes host `torch_v` stage tensors;
+  - [x] Elixir reads Python stage tensors onto `Nx.BinaryBackend` to avoid EXLA donation;
+  - [x] comparator supports `--strict-stage-tolerances`;
+  - [x] comparator prints top differing tensor indices and values.
 - [x] Added fast Mix task option parsing tests.
 - [x] Updated `README.md`, `priv/sakana_trinity/README.md`, and `priv/sakana_trinity/scripts/SVD_PARITY_DEBUG.md`.
+- [x] Added `docs/sakana_svd_byte_match_rigor_plan.md`.
 
 ## Verification
 
@@ -64,4 +76,5 @@
 
 ## Iterative Debugging Continuation
 
-- [ ] After completing the checklist above, proceed to iteratively debug this issue, picking up where the other agent left off.
+- [x] After completing the checklist above, proceed to iteratively debug this issue, picking up where the other agent left off.
+- [ ] Continue byte-match investigation only after `--strict-stage-tolerances` stays green.
