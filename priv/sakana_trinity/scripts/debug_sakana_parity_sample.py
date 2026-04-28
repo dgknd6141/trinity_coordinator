@@ -754,15 +754,26 @@ def torch_v_stage_tensors(
 def write_stage_bundle(out_dir: Path, stage_tensors: dict[str, torch.Tensor]) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / STAGE_FILE
-    save_file({key: value.detach().cpu().contiguous() for key, value in stage_tensors.items()}, str(path))
+    save_file(stage_save_payload(stage_tensors), str(path))
     return path
 
 
 def write_all_selected_stage_bundle(out_dir: Path, stage_tensors: dict[str, torch.Tensor]) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / ALL_SELECTED_STAGE_FILE
-    save_file({key: value.detach().cpu().contiguous() for key, value in stage_tensors.items()}, str(path))
+    save_file(stage_save_payload(stage_tensors), str(path))
     return path
+
+
+def stage_save_payload(stage_tensors: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    # All-selected diagnostics intentionally repeat conceptual checkpoints. Some
+    # tensors are views or tied model weights, and safetensors refuses shared
+    # storage because reload semantics would be ambiguous. Clone every payload
+    # tensor so the debug bundle is explicit and self-contained.
+    return {
+        key: value.detach().cpu().clone().contiguous()
+        for key, value in stage_tensors.items()
+    }
 
 
 def main() -> None:
