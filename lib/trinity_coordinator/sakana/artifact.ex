@@ -388,10 +388,12 @@ defmodule TrinityCoordinator.Sakana.Artifact do
 
   @doc "Computes tensor SHA-256 in lowercase hex after host transfer."
   def tensor_sha256(%Nx.Tensor{} = tensor) do
-    tensor
-    |> Nx.backend_transfer(Nx.BinaryBackend)
-    |> Nx.to_binary()
-    |> :crypto.hash(:sha256)
+    binary =
+      tensor
+      |> Nx.backend_transfer(Nx.BinaryBackend)
+      |> Nx.to_binary()
+
+    :crypto.hash(:sha256, binary)
     |> Base.encode16(case: :lower)
   end
 

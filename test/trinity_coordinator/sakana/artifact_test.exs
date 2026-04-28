@@ -24,6 +24,25 @@ defmodule TrinityCoordinator.Sakana.ArtifactTest do
     assert Nx.to_flat_list(restored) == Nx.to_flat_list(original)
   end
 
+  test "tensor_sha256 hashes host-transferred tensor bytes with stable SHA-256" do
+    tensor = Nx.tensor([[1.0, 2.0], [3.0, 4.0]], type: :f32)
+
+    binary =
+      tensor
+      |> Nx.backend_transfer(Nx.BinaryBackend)
+      |> Nx.to_binary()
+
+    expected =
+      :crypto.hash(:sha256, binary)
+      |> Base.encode16(case: :lower)
+
+    actual = Artifact.tensor_sha256(tensor)
+
+    assert actual == expected
+    assert byte_size(actual) == 64
+    assert actual =~ ~r/^[0-9a-f]{64}$/
+  end
+
   test "patches tensors inside a tiny nested params container" do
     params = %{
       "layers" => [
