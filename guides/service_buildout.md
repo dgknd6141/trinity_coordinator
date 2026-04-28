@@ -40,6 +40,19 @@ Compatibility mode should mirror the supplemental Python loop:
 
 ## What Remains Before Service Use
 
+The implementation order is:
+
+1. all-selected tensor stage parity;
+2. canonical Python semantic bundle import;
+3. adapted Qwen coordinator profile validation;
+4. fixed-transcript router trace parity;
+5. runtime service loop with trace persistence and provider adapters.
+
+Do not skip router trace parity. The adapted profile may load and emit logits
+while still disagreeing with Python on tokenization, hidden-position extraction,
+or head application. Router trace parity is the gate that answers whether the
+model is ready to route.
+
 Complete adapted artifact validation:
 
 - run full export for all selected tensors;

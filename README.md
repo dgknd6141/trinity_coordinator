@@ -96,6 +96,10 @@ Read the guides in this order:
 Additional technical reference notes are included in HexDocs under
 `Reference Notes`.
 
+For implementation handoff work, the private checklist
+`docs/priv/20260428/06_next_phase_execution_checklist.md` is the current
+next-phase task board.
+
 ## Requirements
 
 - Elixir `~> 1.18`.

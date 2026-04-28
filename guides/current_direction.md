@@ -65,11 +65,24 @@ large cleanup diff on top.
 
 ## Near-Term Milestones
 
-1. Keep `--strict-stage-tolerances` green for the semantic Python-component
-   parity path.
-2. Decide whether final Python `bf16` byte matching is worth pursuing further.
-3. Complete and validate canonical adapted artifact export.
-4. Load `:qwen_sakana_adapted` as the default service coordinator profile.
+1. Extend sample parity to all selected tensors:
+   - Python emits stage/debug data for every selected tensor.
+   - Elixir replays every selected tensor from Python components.
+   - The comparator fails if any required stage for any selected tensor fails.
+2. Import the full Python semantic export bundle into canonical Elixir
+   artifacts:
+   - use `export_sakana_trinity_safetensors.py` for the full export bundle;
+   - use `mix trinity.sakana.import_python` for canonical runtime artifacts;
+   - validate manifest, checkpoint hashes, tensor shapes/types, and router head
+     shape `{10, 1024}`.
+3. Load `:qwen_sakana_adapted` as the service coordinator profile:
+   - apply adapted tensors;
+   - load router head;
+   - prove hidden state `{1, 1024}`, logits `{1, 10}`, agent logits `{7}`, and
+     role logits `{3}` on a fixed transcript.
+4. Add fixed-transcript router trace parity:
+   - compare tokenization, hidden extraction, head weights, logits, and argmax
+     agent/role between Python and Elixir.
 5. Run a complete local coordinator loop:
    - transcript in;
    - Qwen hidden state extracted;
@@ -80,6 +93,9 @@ large cleanup diff on top.
    OpenAI-compatible endpoints.
 7. Add trace persistence around every route decision.
 8. Remove or archive shelved experiment-reproduction code.
+
+The private implementation handoff for these first five items is
+`docs/priv/20260428/06_next_phase_execution_checklist.md`.
 
 ## Correctness Standard
 
