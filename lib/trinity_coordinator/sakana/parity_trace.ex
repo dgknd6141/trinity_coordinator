@@ -42,6 +42,10 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
         python_report_path: nil,
         stage_dir: nil,
         native?: true,
+        semantic_host?: true,
+        semantic_device?: true,
+        semantic_layout_diagnostics?: true,
+        source_from_python_stage?: false,
         require_cuda: true
       )
 
@@ -57,25 +61,25 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
     python_baseline = current_python_baseline(python_report)
     python_stage_tensors = python_report |> python_stage_file() |> maybe_read_safetensors()
 
-    {:ok, {model_info, _tokenizer}} = SLMProfile.load_profile(:qwen_coordinator)
-    selected = qwen_selected_tensors(model_info)
-    sample_entry = sample_entry!(selected, sample)
-
     vector = SVD.load_router_vector!(opts[:router_vector_path])
     split = SVD.split_router_vector(vector, @scale_count, @hidden_size, @output_count)
     offsets = sample_offsets(split.scale_offsets, sample)
 
-    source_tensor =
-      orient_to_shape!(sample_entry.tensor, sample["source_shape"], sample["elixir_name"])
+    source_context =
+      source_context!(
+        opts[:source_from_python_stage?],
+        python_stage_tensors,
+        reference,
+        sample
+      )
 
-    # Snapshot before native variants run. SVD/reconstruction can donate device
-    # buffers, so every later variant receives fresh device tensors from these
+    # Snapshot before variants run. SVD/reconstruction can donate device
+    # buffers, so every later variant receives fresh tensors from these
     # immutable host copies.
     vector_host = host_snapshot(vector)
     offsets_host = host_snapshot(offsets)
-    source_host = host_snapshot(source_tensor)
-    sample_entry_backend = Runtime.tensor_backend(sample_entry.tensor)
-    source_backend = Runtime.tensor_backend(source_tensor)
+    source_host = host_snapshot(source_context.source_tensor)
+    source_backend = Runtime.tensor_backend(source_context.source_tensor)
 
     native_variants =
       if opts[:native?] do
@@ -86,16 +90,23 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
 
     component_metadata = component_metadata(opts[:components_dir])
 
+    semantic_context = %{
+      compute_backend: compute_backend,
+      python_baseline: python_baseline,
+      component_metadata: component_metadata,
+      python_stage_tensors: python_stage_tensors,
+      stage_dir: opts[:stage_dir],
+      semantic_host?: opts[:semantic_host?],
+      semantic_device?: opts[:semantic_device?],
+      semantic_layout_diagnostics?: opts[:semantic_layout_diagnostics?]
+    }
+
     semantic =
       maybe_semantic_component_report(
         opts[:components_dir],
         source_host,
         sample,
-        compute_backend,
-        python_baseline,
-        component_metadata,
-        python_stage_tensors,
-        opts[:stage_dir]
+        semantic_context
       )
 
     %{
@@ -121,16 +132,17 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
         "expected_bf16_max" => sample["sample_reconstructed_bf16_max"]
       },
       "selection" => %{
-        "selected_tensor_count" => length(selected),
-        "selected_singular_value_count" => SVD.singular_value_count(selected),
-        "sample_elixir_shape" => shape_list(sample_entry.tensor),
+        "selected_tensor_count" => source_context.selected_tensor_count,
+        "selected_singular_value_count" => source_context.selected_singular_value_count,
+        "sample_elixir_shape" => source_context.sample_elixir_shape,
         "sample_source_oriented_shape" => shape_list(source_host),
-        "sample_source_type" => inspect(Nx.type(sample_entry.tensor)),
-        "sample_source_backend" => sample_entry_backend,
+        "sample_source_type" => source_context.sample_source_type,
+        "sample_source_backend" => source_context.sample_source_backend,
         "sample_source_oriented_backend" => source_backend,
         "diagnostic_snapshots_backend" => Runtime.tensor_backend(source_host),
         "compute_backend" => inspect(compute_backend || Nx.BinaryBackend),
-        "native_svd_enabled" => opts[:native?]
+        "native_svd_enabled" => opts[:native?],
+        "source_from_python_stage" => source_context.from_python_stage?
       },
       "router_vector" => tensor_summary(vector_host, prefix_count: 8),
       "scale_offsets" => tensor_summary(offsets_host, prefix_count: 16),
@@ -260,39 +272,15 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
     }
   end
 
-  defp maybe_semantic_component_report(
-         nil,
-         _source_host,
-         _sample,
-         _compute_backend,
-         _python_baseline,
-         _metadata,
-         _python_stage_tensors,
-         _stage_dir
-       ),
-       do: nil
+  defp maybe_semantic_component_report(nil, _source_host, _sample, _context), do: nil
 
-  defp maybe_semantic_component_report(
-         "",
-         _source_host,
-         _sample,
-         _compute_backend,
-         _python_baseline,
-         _metadata,
-         _python_stage_tensors,
-         _stage_dir
-       ),
-       do: nil
+  defp maybe_semantic_component_report("", _source_host, _sample, _context), do: nil
 
   defp maybe_semantic_component_report(
          components_dir,
          source_host,
          sample,
-         compute_backend,
-         python_baseline,
-         metadata,
-         python_stage_tensors,
-         stage_dir
+         context
        ) do
     component_path = Path.join(components_dir, @component_file)
     scale_path = Path.join(components_dir, @scale_file)
@@ -306,10 +294,19 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
       v = fetch_tensor!(components, "svd.V.#{safe_key}") |> host_snapshot()
       offsets = fetch_tensor!(scales, "svf.scale_offsets.#{safe_key}") |> host_snapshot()
       decomp_host = %{u: u, s: s, v: v}
-      stage_context = %{python_tensors: python_stage_tensors, dir: stage_dir}
+      stage_context = %{python_tensors: context.python_stage_tensors, dir: context.stage_dir}
 
-      for compute_target <- semantic_compute_targets(compute_backend),
-          layout <- semantic_layouts(metadata) do
+      for compute_target <-
+            semantic_compute_targets(
+              context.compute_backend,
+              context.semantic_host?,
+              context.semantic_device?
+            ),
+          layout <-
+            semantic_layouts(
+              context.component_metadata,
+              context.semantic_layout_diagnostics?
+            ) do
         layout
         |> safe_semantic_variant(
           decomp_host,
@@ -319,7 +316,7 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
           compute_target,
           stage_context
         )
-        |> add_python_match(python_baseline)
+        |> add_python_match(context.python_baseline)
       end
     else
       %{
@@ -410,9 +407,10 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
     observed = Artifact.tensor_sha256(final)
 
     {_stage_tensors, stage_file, stage_checks} =
-      if layout == :torch_v and compute_target.label == "host_binary" do
+      if layout == :torch_v do
         stage_tensors =
           semantic_stage_tensors(
+            u_host,
             s_host,
             offsets_host,
             source_host,
@@ -468,10 +466,25 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
     SVD.reconstruct(device_decomp, device_offsets, opts)
   end
 
-  defp semantic_stage_tensors(s, offsets, source, sample, zero_source_f32, adapted_source_f32) do
+  defp semantic_stage_tensors(
+         u,
+         s,
+         offsets,
+         source,
+         sample,
+         zero_source_f32,
+         adapted_source_f32
+       ) do
     offsets = Nx.as_type(offsets, Nx.type(s)) |> host_snapshot()
     scaled_s = Nx.multiply(s, Nx.add(offsets, 1)) |> host_snapshot()
     normalization = Nx.divide(Nx.sum(s), Nx.sum(scaled_s)) |> host_snapshot()
+
+    u_scaled =
+      Nx.multiply(u, Nx.reshape(scaled_s, {1, Nx.axis_size(scaled_s, 0)})) |> host_snapshot()
+
+    # Avoid a second large host-side matrix multiplication while still exposing
+    # the same conceptual checkpoint Python writes.
+    matmul_pre_norm = Nx.divide(adapted_source_f32, normalization) |> host_snapshot()
 
     final_f32 =
       orient_to_shape!(adapted_source_f32, sample["sample_reconstructed_shape"], "stage_final")
@@ -484,6 +497,8 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
       "stage.scaled_s" => Nx.as_type(scaled_s, :f32) |> host_snapshot(),
       "stage.normalization" =>
         normalization |> Nx.reshape({1}) |> Nx.as_type(:f32) |> host_snapshot(),
+      "stage.u_scaled" => Nx.as_type(u_scaled, :f32) |> host_snapshot(),
+      "stage.matmul_pre_norm" => Nx.as_type(matmul_pre_norm, :f32) |> host_snapshot(),
       "stage.adapted_source_f32" => Nx.as_type(adapted_source_f32, :f32) |> host_snapshot(),
       "stage.final_f32" => final_f32,
       "stage.final_bf16" => Nx.as_type(final_f32, :bf16) |> host_snapshot(),
@@ -729,11 +744,27 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
     end
   end
 
-  defp semantic_compute_targets(nil) do
+  defp semantic_compute_targets(_compute_backend, true, false) do
     [%{label: "host_binary", backend: nil}]
   end
 
-  defp semantic_compute_targets(compute_backend) do
+  defp semantic_compute_targets(_compute_backend, false, false) do
+    raise ArgumentError, "semantic replay requires at least one compute target"
+  end
+
+  defp semantic_compute_targets(nil, true, _semantic_device?) do
+    [%{label: "host_binary", backend: nil}]
+  end
+
+  defp semantic_compute_targets(nil, false, true) do
+    raise ArgumentError, "device-only semantic replay requires CUDA; remove --no-cuda"
+  end
+
+  defp semantic_compute_targets(compute_backend, false, true) do
+    [%{label: "device_#{backend_label_slug(compute_backend)}", backend: compute_backend}]
+  end
+
+  defp semantic_compute_targets(compute_backend, true, true) do
     [
       %{label: "host_binary", backend: nil},
       %{label: "device_#{backend_label_slug(compute_backend)}", backend: compute_backend}
@@ -752,7 +783,18 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
     |> String.trim("_")
   end
 
-  defp semantic_layouts(metadata) do
+  defp semantic_layouts(metadata, false) do
+    [preferred_layout(metadata)]
+  end
+
+  defp semantic_layouts(metadata, true) do
+    preferred = preferred_layout(metadata)
+
+    [preferred, :torch_v, :nx, :vh]
+    |> Enum.uniq()
+  end
+
+  defp preferred_layout(metadata) do
     preferred =
       metadata
       |> layout_from_metadata()
@@ -761,8 +803,7 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
         layout -> layout
       end
 
-    [preferred, :torch_v, :nx, :vh]
-    |> Enum.uniq()
+    preferred
   end
 
   defp layout_from_metadata(nil), do: nil
@@ -788,6 +829,59 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
       model_info.params,
       path_filter: SVD.layer_index_filter([26])
     )
+  end
+
+  defp source_context!(true, python_stage_tensors, reference, _sample) do
+    source_tensor =
+      case python_stage_tensors do
+        %{"stage.source_f32" => %Nx.Tensor{} = tensor} ->
+          tensor
+
+        _ ->
+          raise ArgumentError,
+                "--source-from-python-stage requires a Python report with stage.source_f32"
+      end
+
+    %{
+      selected_tensor_count: reference_selected_tensor_count(reference),
+      selected_singular_value_count: reference_selected_singular_value_count(reference),
+      sample_elixir_shape: shape_list(source_tensor),
+      sample_source_type: inspect(Nx.type(source_tensor)),
+      sample_source_backend: "python_stage_safetensors",
+      source_tensor: source_tensor,
+      from_python_stage?: true
+    }
+  end
+
+  defp source_context!(false, _python_stage_tensors, _reference, sample) do
+    {:ok, {model_info, _tokenizer}} = SLMProfile.load_profile(:qwen_coordinator)
+    selected = qwen_selected_tensors(model_info)
+    sample_entry = sample_entry!(selected, sample)
+
+    source_tensor =
+      orient_to_shape!(sample_entry.tensor, sample["source_shape"], sample["elixir_name"])
+
+    %{
+      selected_tensor_count: length(selected),
+      selected_singular_value_count: SVD.singular_value_count(selected),
+      sample_elixir_shape: shape_list(sample_entry.tensor),
+      sample_source_type: inspect(Nx.type(sample_entry.tensor)),
+      sample_source_backend: Runtime.tensor_backend(sample_entry.tensor),
+      source_tensor: source_tensor,
+      from_python_stage?: false
+    }
+  end
+
+  defp reference_selected_tensor_count(reference) do
+    reference
+    |> Map.get("selected_tensors", [])
+    |> length()
+  end
+
+  defp reference_selected_singular_value_count(reference) do
+    reference
+    |> Map.get("selected_tensors", [])
+    |> Enum.reduce(0, fn entry, acc -> acc + Map.fetch!(entry, "singular_values") end)
   end
 
   defp sample_entry!(selected, sample) do

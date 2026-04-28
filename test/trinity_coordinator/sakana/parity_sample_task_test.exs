@@ -19,6 +19,21 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySampleTest do
     refute opts[:native?]
   end
 
+  test "fast semantic replay options are parsed explicitly" do
+    opts =
+      ParitySample.parse_args!([
+        "--semantic-only",
+        "--device-semantic-only",
+        "--preferred-layout-only",
+        "--source-from-python-stage"
+      ])
+
+    refute opts[:native?]
+    assert opts[:device_semantic_only]
+    assert opts[:preferred_layout_only]
+    assert opts[:source_from_python_stage]
+  end
+
   test "native SVD diagnostics stay enabled by default" do
     opts = ParitySample.parse_args!([])
 

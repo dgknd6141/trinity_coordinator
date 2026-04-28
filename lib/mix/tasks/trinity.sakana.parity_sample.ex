@@ -22,7 +22,14 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySample do
   Pass `--semantic-only` while debugging Python-component parity. It skips the
   native `Nx.LinAlg.svd/2` diagnostics and avoids the expensive CUDA SVD
   compilation path. Pass `--stage-dir` to write Elixir stage tensors that can be
-  compared side-by-side with Python's stage tensor bundle.
+  compared side-by-side with Python's stage tensor bundle. Pass
+  `--host-semantic-only` with `--semantic-only` for the fastest functional
+  parity loop; it skips the optional CUDA semantic replay once host stage checks
+  are sufficient. Add `--source-from-python-stage` when a Python report with
+  stage tensors is supplied to avoid loading Qwen just to retrieve the source
+  tensor for semantic-only diagnostics. Add `--preferred-layout-only` to skip
+  known-wrong V-layout diagnostics, or `--device-semantic-only` to avoid the
+  large CPU matrix multiply while still producing stage checks through EXLA.
   """
 
   use Mix.Task
@@ -56,6 +63,12 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySample do
         python_report_path: Keyword.get(opts, :python_report),
         stage_dir: Keyword.get(opts, :stage_dir),
         native?: Keyword.fetch!(opts, :native?),
+        semantic_host?: not Keyword.get(opts, :device_semantic_only, false),
+        semantic_device?:
+          not Keyword.get(opts, :host_semantic_only, false) or
+            Keyword.get(opts, :device_semantic_only, false),
+        semantic_layout_diagnostics?: not Keyword.get(opts, :preferred_layout_only, false),
+        source_from_python_stage?: Keyword.get(opts, :source_from_python_stage, false),
         require_cuda: not Keyword.get(opts, :no_cuda, false)
       )
 
@@ -79,6 +92,10 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySample do
           reference: :string,
           no_cuda: :boolean,
           semantic_only: :boolean,
+          host_semantic_only: :boolean,
+          device_semantic_only: :boolean,
+          preferred_layout_only: :boolean,
+          source_from_python_stage: :boolean,
           skip_native_svd: :boolean
         ]
       )

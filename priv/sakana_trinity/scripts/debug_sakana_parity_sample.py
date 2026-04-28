@@ -68,6 +68,18 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--strict-reference-hash", action="store_true",
                         help="Exit non-zero when no Python variant reproduces the stored reference hash.")
+    parser.add_argument("--all-selected-tensors", action="store_true",
+                        help=(
+                            "Also write SVD components and offset metadata for every selected tensor in the "
+                            "reference manifest. This is expensive when SVD weights are not supplied because it "
+                            "decomposes the embedding and LM head matrices."
+                        ))
+    parser.add_argument("--decompose-all-selected-if-missing", action="store_true",
+                        help=(
+                            "Permit --all-selected-tensors to recompute SVD components when --svd-weights is not "
+                            "provided. Without this explicit opt-in, all-selected mode fails fast to avoid an "
+                            "accidental long-running full-model decomposition."
+                        ))
     return parser.parse_args()
 
 
@@ -259,6 +271,14 @@ def load_svd_weight_components(path: Path, source_name: str, device: str) -> Opt
         raise FileNotFoundError(path)
 
     loaded = torch.load(path, map_location="cpu")
+    return svd_weight_components_from_loaded(loaded, source_name, device)
+
+
+def svd_weight_components_from_loaded(
+    loaded: dict[str, torch.Tensor],
+    source_name: str,
+    device: str,
+) -> dict[str, torch.Tensor]:
     keys = {
         "u": f"{source_name}.U",
         "s": f"{source_name}.S",
@@ -266,7 +286,7 @@ def load_svd_weight_components(path: Path, source_name: str, device: str) -> Opt
     }
     missing = [key for key in keys.values() if key not in loaded]
     if missing:
-        raise KeyError(f"missing keys in {path}: {missing}; available sample={list(loaded.keys())[:20]}")
+        raise KeyError(f"missing SVD keys for {source_name}: {missing}; available sample={list(loaded.keys())[:20]}")
     return {name: loaded[key].detach().to(device) for name, key in keys.items()}
 
 
@@ -407,6 +427,142 @@ def write_component_bundle(
     (out_dir / "trinity_svf_debug_manifest.json").write_text(json.dumps(metadata, indent=2, sort_keys=True))
 
 
+def write_component_bundles(
+    out_dir: Path,
+    component_payload: dict[str, torch.Tensor],
+    scale_payload: dict[str, torch.Tensor],
+    metadata: dict[str, Any],
+) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    save_file(
+        {key: value.detach().cpu().contiguous() for key, value in component_payload.items()},
+        str(out_dir / "trinity_svf_components.safetensors"),
+    )
+    save_file(
+        {key: value.detach().cpu().contiguous() for key, value in scale_payload.items()},
+        str(out_dir / "trinity_svf_scale_offsets.safetensors"),
+    )
+    (out_dir / "trinity_svf_debug_manifest.json").write_text(json.dumps(metadata, indent=2, sort_keys=True))
+
+
+def selected_tensor_entries(reference: dict[str, Any], sample: dict[str, Any], include_all: bool) -> list[dict[str, Any]]:
+    if not include_all:
+        return [
+            {
+                "source_name": sample["source_name"],
+                "elixir_name": sample["elixir_name"],
+                "shape": sample["source_shape"],
+                "singular_values": int(sample["offset_end"]) - int(sample["offset_start"]),
+                "offset_start": sample["offset_start"],
+                "offset_end": sample["offset_end"],
+                "sample_reconstructed_shape": sample["sample_reconstructed_shape"],
+                "sample_reconstructed_bf16_sha256": sample["sample_reconstructed_bf16_sha256"],
+            }
+        ]
+
+    entries = reference.get("selected_tensors")
+    if not isinstance(entries, list) or not entries:
+        raise KeyError("reference manifest has no selected_tensors")
+    return entries
+
+
+def offset_tensor_for_entry(vector: np.ndarray, entry: dict[str, Any], device: str) -> torch.Tensor:
+    start = int(entry["offset_start"])
+    end = int(entry["offset_end"])
+    offsets = torch.from_numpy(vector[start:end].astype(np.float32, copy=True)).to(device)
+    expected = int(entry.get("singular_values", end - start))
+    if offsets.numel() != expected:
+        raise ValueError(
+            f"offset span mismatch for {entry['source_name']}: span={offsets.numel()} expected={expected}"
+        )
+    return offsets
+
+
+def svd_components_for_entry(
+    entry: dict[str, Any],
+    source_f32: torch.Tensor,
+    svd_weights: Optional[dict[str, torch.Tensor]],
+    device: str,
+) -> tuple[dict[str, torch.Tensor], str]:
+    source_name = entry["source_name"]
+    if svd_weights is not None:
+        keys = {
+            "u": f"{source_name}.U",
+            "s": f"{source_name}.S",
+            "v": f"{source_name}.V",
+        }
+        missing = [key for key in keys.values() if key not in svd_weights]
+        if missing:
+            raise KeyError(f"missing SVD keys for {source_name}: {missing}")
+        return {name: svd_weights[key].detach().to(device) for name, key in keys.items()}, "svd_weights_pt"
+
+    u, s, v = torch.svd(source_f32)
+    return {"u": u, "s": s, "v": v}, "recomputed_torch_svd"
+
+
+def build_selected_component_bundle(
+    entries: list[dict[str, Any]],
+    state_dict: dict[str, torch.Tensor],
+    vector: np.ndarray,
+    svd_weights: Optional[dict[str, torch.Tensor]],
+    device: str,
+) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], list[dict[str, Any]], str]:
+    components: dict[str, torch.Tensor] = {}
+    scales: dict[str, torch.Tensor] = {}
+    metadata_entries: list[dict[str, Any]] = []
+    component_sources: set[str] = set()
+
+    for index, entry in enumerate(entries):
+        source_name = entry["source_name"]
+        if source_name not in state_dict:
+            raise KeyError(f"{source_name!r} missing; available sample keys={list(state_dict)[:20]}")
+
+        source = state_dict[source_name].detach().to(device)
+        source_f32 = source.to(torch.float32)
+        entry_components, component_source = svd_components_for_entry(entry, source_f32, svd_weights, device)
+        component_sources.add(component_source)
+        offsets = offset_tensor_for_entry(vector, entry, device)
+        safe = sanitize_key(source_name)
+
+        component_keys = {
+            "u": f"svd.U.{safe}",
+            "s": f"svd.S.{safe}",
+            "v": f"svd.V.{safe}",
+        }
+        scale_key = f"svf.scale_offsets.{safe}"
+
+        components[component_keys["u"]] = entry_components["u"]
+        components[component_keys["s"]] = entry_components["s"]
+        components[component_keys["v"]] = entry_components["v"]
+        scales[scale_key] = offsets
+
+        metadata_entries.append(
+            {
+                "index": index,
+                "source_name": source_name,
+                "elixir_name": entry.get("elixir_name"),
+                "safe_key": safe,
+                "component_source": component_source,
+                "component_v_layout": "torch_v",
+                "component_tensors": component_keys,
+                "scale_tensor": scale_key,
+                "source_shape": list(source.shape),
+                "source_dtype": str(source.dtype).replace("torch.", ""),
+                "u_shape": list(entry_components["u"].shape),
+                "s_shape": list(entry_components["s"].shape),
+                "v_shape": list(entry_components["v"].shape),
+                "offset_start": int(entry["offset_start"]),
+                "offset_end": int(entry["offset_end"]),
+                "singular_values": int(entry.get("singular_values", offsets.numel())),
+                "source_sha256_as_f32": tensor_sha256(source_f32),
+                "offsets_sha256": tensor_sha256(offsets),
+            }
+        )
+
+    component_source_label = next(iter(component_sources)) if len(component_sources) == 1 else "mixed"
+    return components, scales, metadata_entries, component_source_label
+
+
 def load_component_bundle(
     components_dir: Path,
     source_name: str,
@@ -541,6 +697,13 @@ def write_stage_bundle(out_dir: Path, stage_tensors: dict[str, torch.Tensor]) ->
 
 def main() -> None:
     args = parse_args()
+    if args.all_selected_tensors and args.svd_weights is None and not args.decompose_all_selected_if_missing:
+        raise SystemExit(
+            "--all-selected-tensors requires --svd-weights unless "
+            "--decompose-all-selected-if-missing is set. This protects the debug harness from accidentally "
+            "running SVD over every selected Qwen tensor, including embedding and LM head."
+        )
+
     reference = json.loads(args.reference.read_text())
     sample = reference["sample_adapted_tensor"]
     expected = sample["sample_reconstructed_bf16_sha256"]
@@ -560,11 +723,17 @@ def main() -> None:
     source = state_dict[source_name].detach().to(args.device)
     source_f32 = source.to(torch.float32)
 
-    svd_components = load_svd_weight_components(args.svd_weights, source_name, args.device) if args.svd_weights else None
+    all_svd_weights = torch.load(args.svd_weights, map_location="cpu") if args.svd_weights else None
+    svd_components = (
+        svd_weight_components_from_loaded(all_svd_weights, source_name, args.device)
+        if all_svd_weights is not None
+        else None
+    )
     variants, component_bundle, component_source = build_variants(source_f32, offsets, sample, svd_components)
     component_readback_summary = None
     stage_tensors: dict[str, torch.Tensor] = {}
     stage_path: Path | None = None
+    selected_component_entries: list[dict[str, Any]] = []
 
     in_memory_baseline = select_baseline_variant(variants, expected, component_source)
     component_metadata = {
@@ -580,7 +749,41 @@ def main() -> None:
     }
 
     if not args.no_write_components:
-        write_component_bundle(args.write_components_dir, source_name, component_bundle, offsets, component_metadata)
+        if args.all_selected_tensors:
+            entries = selected_tensor_entries(reference, sample, include_all=True)
+
+            component_payload, scale_payload, selected_component_entries, component_source_written = (
+                build_selected_component_bundle(
+                    entries,
+                    state_dict,
+                    vector,
+                    all_svd_weights,
+                    args.device,
+                )
+            )
+
+            all_component_metadata = {
+                **component_metadata,
+                "schema": "trinity_sakana_selected_component_debug.v1",
+                "all_selected_tensors": True,
+                "decomposed_all_selected_if_missing": args.decompose_all_selected_if_missing,
+                "selected_tensor_count": len(selected_component_entries),
+                "selected_tensors": selected_component_entries,
+                "component_source": component_source_written,
+                "warning": (
+                    "All selected component export may be expensive without --svd-weights because "
+                    "it recomputes SVD for every selected tensor, including embedding and LM head."
+                ),
+            }
+            write_component_bundles(
+                args.write_components_dir,
+                component_payload,
+                scale_payload,
+                all_component_metadata,
+            )
+            component_source = component_source_written
+        else:
+            write_component_bundle(args.write_components_dir, source_name, component_bundle, offsets, component_metadata)
 
     readback_dir = args.readback_components_dir
     if readback_dir is None and not args.no_write_components:
@@ -630,6 +833,7 @@ def main() -> None:
             "svd_weights": None if args.svd_weights is None else str(args.svd_weights),
             "write_components_dir": None if args.no_write_components else str(args.write_components_dir),
             "component_source_written": None if args.no_write_components else component_source,
+            "all_selected_tensors_written": bool(args.all_selected_tensors and not args.no_write_components),
             "readback_components_dir": None if readback_dir is None else str(readback_dir),
             "stage_tensor_file": None if stage_path is None else str(stage_path),
         },
@@ -638,6 +842,7 @@ def main() -> None:
         "scale_offsets": tensor_summary(offsets, 16),
         "component_bundle_before_write": component_bundle_summary(component_bundle, offsets),
         "component_bundle_readback": component_readback_summary,
+        "selected_tensor_components": selected_component_entries,
         "stage_debug": {
             "schema": "trinity_sakana_stage_debug.v1",
             "baseline_label": "python_safetensors_readback_torch_v_final_bf16",
@@ -657,7 +862,13 @@ def main() -> None:
 
     print(f"wrote Python parity report: {args.out}")
     if not args.no_write_components:
-        print(f"wrote sample Python components: {args.write_components_dir}")
+        if args.all_selected_tensors:
+            print(
+                f"wrote Python components for {len(selected_component_entries)} selected tensors: "
+                f"{args.write_components_dir}"
+            )
+        else:
+            print(f"wrote sample Python components: {args.write_components_dir}")
     if stage_path is not None:
         print(f"wrote Python stage tensor bundle: {stage_path}")
         print("stage baseline: Python safetensors readback; compare with --strict-stage-tolerances")
