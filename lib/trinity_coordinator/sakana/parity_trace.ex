@@ -40,6 +40,7 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
         reference_manifest_path: @reference_manifest_path,
         components_dir: nil,
         python_report_path: nil,
+        native?: true,
         require_cuda: true
       )
 
@@ -75,7 +76,11 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
     source_backend = Runtime.tensor_backend(source_tensor)
 
     native_variants =
-      native_variants(source_host, offsets_host, sample, compute_backend, python_baseline)
+      if opts[:native?] do
+        native_variants(source_host, offsets_host, sample, compute_backend, python_baseline)
+      else
+        []
+      end
 
     component_metadata = component_metadata(opts[:components_dir])
 
@@ -119,7 +124,8 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
         "sample_source_backend" => sample_entry_backend,
         "sample_source_oriented_backend" => source_backend,
         "diagnostic_snapshots_backend" => Runtime.tensor_backend(source_host),
-        "compute_backend" => inspect(compute_backend || Nx.BinaryBackend)
+        "compute_backend" => inspect(compute_backend || Nx.BinaryBackend),
+        "native_svd_enabled" => opts[:native?]
       },
       "router_vector" => tensor_summary(vector_host, prefix_count: 8),
       "scale_offsets" => tensor_summary(offsets_host, prefix_count: 16),
@@ -198,6 +204,18 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
       |> Nx.as_type(:bf16)
       |> host_snapshot()
 
+    sample_reconstruct_f32_host =
+      %{u: u_host, s: s_host, v: v_host}
+      |> reconstruct_on_backend(typed_offsets_host, compute_backend)
+      |> host_snapshot()
+
+    final_f32 =
+      orient_to_shape!(
+        sample_reconstruct_f32_host,
+        sample["sample_reconstructed_shape"],
+        "#{config.label}_f32"
+      )
+
     final =
       orient_to_shape!(
         sample_reconstruct_host,
@@ -229,6 +247,7 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
       "component_backends" => %{"u" => u_backend, "s" => s_backend, "v" => v_backend},
       "zero_offset_max_abs_error_vs_source" =>
         max_abs_error(zero_reconstruct_host, svd_source_host),
+      "final_f32_before_bf16" => tensor_summary(final_f32, prefix_count: 16),
       "final" => tensor_summary(final, prefix_count: 16),
       "observed_bf16_sha256" => observed,
       "expected_bf16_sha256" => expected,
@@ -339,6 +358,18 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
       |> Nx.as_type(:bf16)
       |> host_snapshot()
 
+    sample_reconstruct_f32_host =
+      %{u: u_host, s: s_host, v: v_host}
+      |> reconstruct_on_backend(typed_offsets_host, compute_target.backend, v_layout: layout)
+      |> host_snapshot()
+
+    final_f32 =
+      orient_to_shape!(
+        sample_reconstruct_f32_host,
+        sample["sample_reconstructed_shape"],
+        "semantic_#{layout}_f32"
+      )
+
     final =
       orient_to_shape!(
         sample_reconstruct_host,
@@ -360,6 +391,7 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
       "offsets" => tensor_summary(offsets_host, prefix_count: 16),
       "zero_offset_max_abs_error_vs_source" =>
         max_abs_error(zero_reconstruct_host, Nx.as_type(source_host, :f32)),
+      "final_f32_before_bf16" => tensor_summary(final_f32, prefix_count: 16),
       "final" => tensor_summary(final, prefix_count: 16),
       "observed_bf16_sha256" => observed,
       "expected_bf16_sha256" => expected,
@@ -422,33 +454,31 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
     label = Map.get(reference, "current_python_baseline_label")
     digest = Map.get(reference, "current_python_baseline_bf16_sha256")
 
-    cond do
-      is_binary(label) and is_binary(digest) ->
-        %{
-          "label" => label,
-          "observed_bf16_sha256" => digest,
-          "expected_hash_reproducible" => Map.get(reference, "expected_hash_reproducible"),
-          "source" => "python_report_reference"
-        }
+    if is_binary(label) and is_binary(digest) do
+      %{
+        "label" => label,
+        "observed_bf16_sha256" => digest,
+        "expected_hash_reproducible" => Map.get(reference, "expected_hash_reproducible"),
+        "source" => "python_report_reference"
+      }
+    else
+      report
+      |> Map.get("variants", [])
+      |> Enum.find(fn variant ->
+        is_map(variant) and is_binary(Map.get(variant, "observed_bf16_sha256"))
+      end)
+      |> case do
+        nil ->
+          nil
 
-      true ->
-        report
-        |> Map.get("variants", [])
-        |> Enum.find(fn variant ->
-          is_map(variant) and is_binary(Map.get(variant, "observed_bf16_sha256"))
-        end)
-        |> case do
-          nil ->
-            nil
-
-          variant ->
-            %{
-              "label" => Map.get(variant, "label"),
-              "observed_bf16_sha256" => Map.get(variant, "observed_bf16_sha256"),
-              "expected_hash_reproducible" => Map.get(reference, "expected_hash_reproducible"),
-              "source" => "python_report_first_variant"
-            }
-        end
+        variant ->
+          %{
+            "label" => Map.get(variant, "label"),
+            "observed_bf16_sha256" => Map.get(variant, "observed_bf16_sha256"),
+            "expected_hash_reproducible" => Map.get(reference, "expected_hash_reproducible"),
+            "source" => "python_report_first_variant"
+          }
+      end
     end
   end
 
@@ -479,8 +509,6 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
   defp semantic_label(layout, compute_target) do
     "semantic_python_components_#{compute_target.label}_v_layout_#{layout}"
   end
-
-  defp backend_label_slug(nil), do: "binary"
 
   defp backend_label_slug(backend) do
     backend
@@ -622,12 +650,7 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
 
   defp scalar(tensor), do: tensor |> host_snapshot() |> Nx.to_number() |> finite_float()
 
-  defp finite_float(value) when is_float(value) do
-    cond do
-      value != value -> "nan"
-      true -> value
-    end
-  end
+  defp finite_float(value) when is_float(value), do: value
 
   defp finite_float(value), do: value
 

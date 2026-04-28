@@ -29,6 +29,7 @@ from typing import Any, Optional
 
 import numpy as np
 import torch
+from safetensors.torch import load_file
 from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM
 
@@ -48,6 +49,8 @@ def parse_args() -> argparse.Namespace:
                         help="Optional original svd_weights.pt. Use this for strict historical hash reproduction; without it, SVD is recomputed in the current environment.")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--write-components-dir", type=Path, default=DEFAULT_COMPONENT_DIR)
+    parser.add_argument("--readback-components-dir", type=Path, default=None,
+                        help="Optional component directory to read back and reconstruct. Defaults to --write-components-dir when components are written.")
     parser.add_argument("--no-write-components", action="store_true")
     parser.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
     parser.add_argument("--vector-dtype", default="float32", choices=["float32", "float64"])
@@ -212,6 +215,7 @@ def variant_report(
 ) -> dict[str, Any]:
     final_f32_oriented = orient_to_shape(adapted_reconstructed, sample["sample_reconstructed_shape"], label)
     final_bf16 = final_f32_oriented.to(torch.bfloat16).contiguous()
+    source_bf16_roundtrip = source_f32.to(torch.bfloat16).to(torch.float32)
     observed = tensor_sha256(final_bf16)
     expected = sample["sample_reconstructed_bf16_sha256"]
     return {
@@ -219,6 +223,10 @@ def variant_report(
         "component_source": component_source,
         "v_layout": v_layout,
         "zero_offset_max_abs_error_vs_source": max_abs_error(zero_reconstructed, source_f32),
+        "zero_offset_max_abs_error_vs_source_bf16_roundtrip": max_abs_error(
+            zero_reconstructed,
+            source_bf16_roundtrip,
+        ),
         "s": singular,
         "final_f32_before_bf16": tensor_summary(final_f32_oriented, 16),
         "final": tensor_summary(final_bf16, 16),
@@ -348,12 +356,17 @@ def build_variants(
     return variants, component_bundle, component_source
 
 
-def select_baseline_variant(variants: list[dict[str, Any]], expected: str, component_source: str) -> dict[str, Any]:
+def select_baseline_variant(
+    variants: list[dict[str, Any]],
+    expected: str,
+    component_source: str,
+) -> dict[str, Any]:
     for variant in variants:
         if variant["observed_bf16_sha256"] == expected:
             return variant
 
     preferred_labels = [
+        "python_safetensors_readback_torch_v_final_bf16",
         "python_svd_weights_torch_v_final_bf16" if component_source == "svd_weights_pt" else "python_recomputed_torch_svd_v_final_bf16",
         "python_recomputed_torch_svd_v_final_bf16",
     ]
@@ -388,6 +401,98 @@ def write_component_bundle(
     (out_dir / "trinity_svf_debug_manifest.json").write_text(json.dumps(metadata, indent=2, sort_keys=True))
 
 
+def load_component_bundle(
+    components_dir: Path,
+    source_name: str,
+    device: str,
+) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
+    safe = sanitize_key(source_name)
+    components_path = components_dir / "trinity_svf_components.safetensors"
+    scales_path = components_dir / "trinity_svf_scale_offsets.safetensors"
+    components = load_file(str(components_path), device="cpu")
+    scales = load_file(str(scales_path), device="cpu")
+    keys = {
+        "u": f"svd.U.{safe}",
+        "s": f"svd.S.{safe}",
+        "v": f"svd.V.{safe}",
+        "offsets": f"svf.scale_offsets.{safe}",
+    }
+    missing = [
+        key
+        for key in keys.values()
+        if key not in components and key not in scales
+    ]
+    if missing:
+        raise KeyError(
+            f"missing readback keys in {components_dir}: {missing}; "
+            f"component keys={list(components.keys())}; scale keys={list(scales.keys())}"
+        )
+    bundle = {
+        "u": components[keys["u"]].detach().to(device),
+        "s": components[keys["s"]].detach().to(device),
+        "v": components[keys["v"]].detach().to(device),
+    }
+    offsets = scales[keys["offsets"]].detach().to(device)
+    return bundle, offsets
+
+
+def component_bundle_summary(
+    components: dict[str, torch.Tensor],
+    offsets: torch.Tensor,
+) -> dict[str, Any]:
+    return {
+        "u": tensor_summary(components["u"], 4),
+        "s": tensor_summary(components["s"], 16),
+        "v": tensor_summary(components["v"], 4),
+        "offsets": tensor_summary(offsets, 16),
+    }
+
+
+def build_readback_variants(
+    components_dir: Path,
+    source_name: str,
+    source_f32: torch.Tensor,
+    sample: dict[str, Any],
+    device: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    components, offsets = load_component_bundle(components_dir, source_name, device)
+    u = components["u"].to(torch.float32)
+    s = components["s"].to(torch.float32)
+    v = components["v"].to(torch.float32)
+    offsets = offsets.to(torch.float32)
+    zeros = torch.zeros_like(s)
+
+    zero_torch_v, _ = reconstruct_from_torch_v(u, s, v, zeros)
+    adapted_torch_v, singular_torch_v = reconstruct_from_torch_v(u, s, v, offsets)
+
+    zero_vh, _ = reconstruct_from_vh(u, s, v, zeros)
+    adapted_vh, singular_vh = reconstruct_from_vh(u, s, v, offsets)
+
+    variants = [
+        variant_report(
+            "python_safetensors_readback_torch_v_final_bf16",
+            zero_torch_v,
+            adapted_torch_v,
+            singular_torch_v,
+            source_f32,
+            sample,
+            "safetensors_readback",
+            "torch_v",
+        ),
+        variant_report(
+            "python_safetensors_readback_vh_final_bf16",
+            zero_vh,
+            adapted_vh,
+            singular_vh,
+            source_f32,
+            sample,
+            "safetensors_readback",
+            "vh",
+        ),
+    ]
+    return variants, component_bundle_summary(components, offsets)
+
+
 def main() -> None:
     args = parse_args()
     reference = json.loads(args.reference.read_text())
@@ -411,23 +516,40 @@ def main() -> None:
 
     svd_components = load_svd_weight_components(args.svd_weights, source_name, args.device) if args.svd_weights else None
     variants, component_bundle, component_source = build_variants(source_f32, offsets, sample, svd_components)
-    baseline = select_baseline_variant(variants, expected, component_source)
-    reference_hash_reproducible = any(v["matches_expected"] for v in variants)
+    component_readback_summary = None
 
+    in_memory_baseline = select_baseline_variant(variants, expected, component_source)
     component_metadata = {
         "schema": "trinity_sakana_sample_component_debug.v1",
         "source_name": source_name,
         "component_source": component_source,
         "component_v_layout": "torch_v",
-        "baseline_label": baseline["label"],
-        "baseline_observed_bf16_sha256": baseline["observed_bf16_sha256"],
+        "baseline_label": in_memory_baseline["label"],
+        "baseline_observed_bf16_sha256": in_memory_baseline["observed_bf16_sha256"],
         "stored_reference_bf16_sha256": expected,
-        "stored_reference_hash_reproducible": reference_hash_reproducible,
+        "stored_reference_hash_reproducible": any(v["matches_expected"] for v in variants),
         "svd_weights_path": None if args.svd_weights is None else str(args.svd_weights),
     }
 
     if not args.no_write_components:
         write_component_bundle(args.write_components_dir, source_name, component_bundle, offsets, component_metadata)
+
+    readback_dir = args.readback_components_dir
+    if readback_dir is None and not args.no_write_components:
+        readback_dir = args.write_components_dir
+
+    if readback_dir is not None:
+        readback_variants, component_readback_summary = build_readback_variants(
+            readback_dir,
+            source_name,
+            source_f32,
+            sample,
+            args.device,
+        )
+        variants.extend(readback_variants)
+
+    baseline = select_baseline_variant(variants, expected, component_source)
+    reference_hash_reproducible = any(v["matches_expected"] for v in variants)
 
     report = {
         "schema": "trinity_sakana_python_svd_parity_trace.v2",
@@ -457,10 +579,13 @@ def main() -> None:
             "svd_weights": None if args.svd_weights is None else str(args.svd_weights),
             "write_components_dir": None if args.no_write_components else str(args.write_components_dir),
             "component_source_written": None if args.no_write_components else component_source,
+            "readback_components_dir": None if readback_dir is None else str(readback_dir),
         },
         "source_tensor": tensor_summary(source, 16),
         "source_tensor_f32_svd_input": tensor_summary(source_f32, 16),
         "scale_offsets": tensor_summary(offsets, 16),
+        "component_bundle_before_write": component_bundle_summary(component_bundle, offsets),
+        "component_bundle_readback": component_readback_summary,
         "variants": variants,
     }
 

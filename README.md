@@ -151,6 +151,10 @@ Implemented and tested:
 - `TrinityCoordinator.Sakana.SVD`: loads the Sakana safetensors vector, splits
   the `9216 + 10240` layout, implements SVD/SVF reconstruction mechanics, loads
   the imported head into Axon, and supports adapted tensor reinsertion.
+- `mix trinity.sakana.parity_sample --semantic-only`: compares Python-exported
+  SVD components against Elixir reconstruction without recompiling native Nx
+  SVD diagnostics. Use this for the active parity loop before running the slower
+  native-SVD report.
 - `TrinityCoordinator.Sakana.Artifact`: validates artifact manifests and loads
   persisted artifacts back into the Qwen params tree and routing head.
 - `Trace.JSONL` and `Trace.Hash`: serialize tensors by preserving original
@@ -212,8 +216,12 @@ The Qwen profile gate applies to profile selection:
 
 - `qwen_coordinator` is expected to load successfully on GPU-backed EXLA.
 - do not treat CPU-only Qwen runs as passing the production profile gate.
-- do not claim full Sakana parity until the SVF-adapted Qwen params and router
-  outputs are compared against the Python reference path.
+- do not claim strict historical Sakana hash parity unless the Python debug
+  report itself reproduces the stored reference hash from the original SVD
+  provenance.
+- use Python safetensors readback plus Elixir `--semantic-only` reports for the
+  current semantic parity loop; native Nx SVD adapted hashes are diagnostics,
+  not default PyTorch byte-match targets.
 
 ## GPU Setup
 
@@ -400,6 +408,22 @@ Sakana artifact import and SVD/SVF mechanics:
 - reconstructs adapted tensors with Sakana's normalization formula,
 - reinserts adapted tensors into nested Bumblebee params containers,
 - loads imported head weights into the Axon routing head.
+
+For focused SVD/hash parity work, first run
+`priv/sakana_trinity/scripts/debug_sakana_parity_sample.py` to generate Python
+in-memory and safetensors-readback baselines, then run:
+
+```bash
+XLA_TARGET=cuda12 mix trinity.sakana.parity_sample \
+  --semantic-only \
+  --components-dir tmp/sakana_parity/python_components \
+  --python-report tmp/sakana_parity/python_sample_trace.json \
+  --out tmp/sakana_parity/elixir_sample_trace.json
+```
+
+Omit `--semantic-only` only when native Nx SVD diagnostics are explicitly needed;
+that path can trigger long CUDA compilation and is not the default oracle for
+PyTorch component parity.
 
 ### `TrinityCoordinator.Sakana.Artifact`
 

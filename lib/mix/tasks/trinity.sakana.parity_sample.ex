@@ -13,9 +13,14 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySample do
         --write-components-dir tmp/sakana_parity/python_components
 
       XLA_TARGET=cuda12 mix trinity.sakana.parity_sample \
+        --semantic-only \
         --components-dir tmp/sakana_parity/python_components \
         --python-report tmp/sakana_parity/python_sample_trace.json \
         --out tmp/sakana_parity/elixir_sample_trace.json
+
+  Pass `--semantic-only` while debugging Python-component parity. It skips the
+  native `Nx.LinAlg.svd/2` diagnostics and avoids the expensive CUDA SVD
+  compilation path.
   """
 
   use Mix.Task
@@ -29,20 +34,7 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySample do
   def run(args) do
     Mix.Task.run("app.start")
 
-    {opts, rest, errors} =
-      OptionParser.parse(args,
-        strict: [
-          out: :string,
-          components_dir: :string,
-          python_report: :string,
-          router_vector: :string,
-          reference: :string,
-          no_cuda: :boolean
-        ]
-      )
-
-    unless rest == [], do: Mix.raise("Unexpected arguments: #{inspect(rest)}")
-    unless errors == [], do: Mix.raise("Invalid options: #{inspect(errors)}")
+    opts = parse_args!(args)
 
     report =
       ParityTrace.sample_report!(
@@ -60,6 +52,7 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySample do
           ),
         components_dir: Keyword.get(opts, :components_dir),
         python_report_path: Keyword.get(opts, :python_report),
+        native?: Keyword.fetch!(opts, :native?),
         require_cuda: not Keyword.get(opts, :no_cuda, false)
       )
 
@@ -68,6 +61,31 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySample do
 
     Mix.shell().info("Wrote Elixir parity report: #{out}")
     print_hash_summary(report)
+  end
+
+  @doc false
+  def parse_args!(args) do
+    {opts, rest, errors} =
+      OptionParser.parse(args,
+        strict: [
+          out: :string,
+          components_dir: :string,
+          python_report: :string,
+          router_vector: :string,
+          reference: :string,
+          no_cuda: :boolean,
+          semantic_only: :boolean,
+          skip_native_svd: :boolean
+        ]
+      )
+
+    unless rest == [], do: Mix.raise("Unexpected arguments: #{inspect(rest)}")
+    unless errors == [], do: Mix.raise("Invalid options: #{inspect(errors)}")
+
+    native? =
+      not (Keyword.get(opts, :semantic_only, false) or Keyword.get(opts, :skip_native_svd, false))
+
+    Keyword.put(opts, :native?, native?)
   end
 
   defp print_hash_summary(report) do
@@ -87,13 +105,17 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySample do
       Mix.shell().info("Current Python baseline hash: (no --python-report supplied)")
     end
 
-    report
-    |> Map.get("native_elixir_svd_variants", [])
-    |> Enum.each(fn variant ->
-      Mix.shell().info(
-        "native #{variant["label"]}: #{variant["observed_bf16_sha256"]} match_stored=#{variant["matches_expected"]} match_python=#{variant["matches_python_current"]} zero_error=#{variant["zero_offset_max_abs_error_vs_source"]}"
-      )
-    end)
+    case Map.get(report, "native_elixir_svd_variants", []) do
+      [] ->
+        Mix.shell().info("Native Elixir SVD variants: skipped")
+
+      variants ->
+        Enum.each(variants, fn variant ->
+          Mix.shell().info(
+            "native #{variant["label"]}: #{variant["observed_bf16_sha256"]} match_stored=#{variant["matches_expected"]} match_python=#{variant["matches_python_current"]} zero_error=#{variant["zero_offset_max_abs_error_vs_source"]}"
+          )
+        end)
+    end
 
     case Map.get(report, "semantic_python_component_variants") do
       variants when is_list(variants) ->

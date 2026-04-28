@@ -883,19 +883,16 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
     native =
       report
       |> Map.get("native_elixir_svd_variants", [])
-      |> Enum.map(fn variant ->
+      |> Enum.map_join("; ", fn variant ->
         "#{variant["label"]}=#{variant["observed_bf16_sha256"]} zero_error=#{variant["zero_offset_max_abs_error_vs_source"]}"
       end)
-      |> Enum.join("; ")
 
     semantic =
       case Map.get(report, "semantic_python_component_variants") do
         variants when is_list(variants) ->
-          variants
-          |> Enum.map(fn variant ->
+          Enum.map_join(variants, "; ", fn variant ->
             "#{variant["label"]}=#{variant["observed_bf16_sha256"]} match_python=#{variant["matches_python_current"]} zero_error=#{variant["zero_offset_max_abs_error_vs_source"]}"
           end)
-          |> Enum.join("; ")
 
         other ->
           inspect(other)

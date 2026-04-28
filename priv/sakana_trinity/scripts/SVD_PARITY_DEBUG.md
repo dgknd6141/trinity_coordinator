@@ -18,15 +18,21 @@ This writes:
 - `tmp/sakana_parity/python_components/trinity_svf_scale_offsets.safetensors`
 - `tmp/sakana_parity/python_components/trinity_svf_debug_manifest.json`
 
-The report now separates two concepts:
+The report separates three concepts:
 
 - **stored reference hash**: the historical value in `sakana_python_reference_manifest.json`;
-- **current Python baseline hash**: the value produced by the current Python/PyTorch environment.
+- **current Python recomputation hash**: the value produced by the current Python/PyTorch environment;
+- **Python safetensors readback hash**: the value produced after reading back the
+  exact component files that Elixir consumes.
 
 If the script prints `reference_hash_reproducible: False`, do **not** expect Elixir
 or freshly recomputed Python SVD components to match the stored `600be6...` hash.
 That means the stored hash is provenance-sensitive to the original SVD component
 basis.
+
+The readback variant is the decisive export check. If
+`python_safetensors_readback_torch_v_final_bf16` matches the recomputed Python
+variant, the component files are not the cause of an Elixir mismatch.
 
 ## 1a. Strict historical reproduction, when original SVD weights are available
 
@@ -48,14 +54,21 @@ Only use strict stored-reference assertions after the Python report itself says
 
 ```bash
 XLA_TARGET=cuda12 mix trinity.sakana.parity_sample \
+  --semantic-only \
   --components-dir tmp/sakana_parity/python_components \
   --python-report tmp/sakana_parity/python_sample_trace.json \
   --out tmp/sakana_parity/elixir_sample_trace.json
 ```
 
-This writes native Nx SVD variants and semantic Python-component reconstruction
-variants. The Elixir tracer snapshots intermediate tensors to `Nx.BinaryBackend`
-before reconstruction so EXLA donated buffers cannot crash the report.
+`--semantic-only` skips native `Nx.LinAlg.svd/2` diagnostics and avoids the
+long CUDA SVD compilation path while debugging Python-component parity. Omit it
+only when you specifically need native Nx SVD diagnostics.
+
+The Elixir tracer snapshots intermediate tensors to `Nx.BinaryBackend` before
+reconstruction so EXLA donated buffers cannot crash the report. Semantic
+variants include both the final `bf16` tensor summary and a
+`final_f32_before_bf16` summary so formula/accumulation differences can be
+separated from final byte-hash rounding.
 
 For semantic Python components, the tracer now emits both host/BinaryBackend and
 device/EXLA variants. Use the host/BinaryBackend semantic variant for strict
@@ -65,8 +78,12 @@ semantics than PyTorch CPU, so a device variant can have a larger zero-offset
 error and a different `bf16` hash even when the formula and V layout are right.
 
 Native variants are expected to differ when the SVD basis differs. Semantic
-Python-component variants isolate formula, V/Vh layout, orientation, final `bf16`
-cast, raw-byte hashing, and compute backend.
+Python-component variants isolate formula, V/Vh layout, orientation, framework
+GEMM accumulation behavior, final `bf16` cast, raw-byte hashing, and compute
+backend. Exact `bf16` hashes can still differ across PyTorch and Nx/EXLA when a
+large fp32 matmul accumulates differently; use zero-offset error and pre-bf16
+summaries to decide whether the formula is correct before treating a hash
+mismatch as a porting bug.
 
 ## 3. Compare both reports
 

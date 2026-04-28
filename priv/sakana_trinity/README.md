@@ -61,3 +61,16 @@ The semantic export writes:
 - `trinity_router_head.safetensors`
 - `trinity_sakana_export_manifest.json`
 
+## Parity Debugging
+
+Use `scripts/debug_sakana_parity_sample.py` before asserting byte-level parity.
+It now reconstructs both from in-memory Python SVD components and from the exact
+safetensors files written for Elixir. Matching Python recomputation/readback
+hashes prove the component export did not alter `U/S/V` or scale offsets.
+
+For Elixir-side semantic checks, pass `--semantic-only` to
+`mix trinity.sakana.parity_sample` while debugging Python-component parity. That
+skips native Nx SVD diagnostics and avoids the expensive CUDA SVD compilation
+path. Native SVD diagnostics are useful only when investigating Nx's SVD basis;
+they are not expected to byte-match PyTorch adapted hashes under nonzero SVF
+offsets.
