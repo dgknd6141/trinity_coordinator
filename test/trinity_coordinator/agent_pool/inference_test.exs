@@ -3,6 +3,7 @@ defmodule TrinityCoordinator.AgentPoolInferenceTest do
 
   alias Inference.{Client, Request, Response}
   alias TrinityCoordinator.AgentPool
+  alias TrinityCoordinator.ProviderPool
 
   defmodule FakeInferenceAdapter do
     @behaviour Inference.Adapter
@@ -84,6 +85,33 @@ defmodule TrinityCoordinator.AgentPoolInferenceTest do
 
     assert client.provider == :codex
     assert request.session == "session-1"
+  end
+
+  test "passes Gemini CLI ASM pool metadata through the inference boundary" do
+    spec = ProviderPool.spec_for_agent(:gemini_cli_asm, 0)
+
+    assert {:ok, "gemini asm response"} =
+             AgentPool.call_agent_with_spec(spec, [%{role: "user", content: "ping"}],
+               adapter: TrinityCoordinator.AgentPool.Inference,
+               inference_adapter: FakeInferenceAdapter,
+               inference_adapter_opts: [
+                 test_pid: self(),
+                 response_text: "gemini asm response"
+               ]
+             )
+
+    assert_receive {:inference_call, %Client{} = client, %Request{} = request}
+
+    query_opts = client.adapter_opts[:query_opts]
+    payload = query_opts[:model_payload]
+
+    assert client.provider == :gemini
+    assert client.backend == :agent_session_manager
+    assert request.model == "gemini-3.1-flash-lite-preview"
+    assert query_opts[:lane] == :sdk
+    assert payload.provider == :gemini
+    assert payload.requested_model == "gemini-3.1-flash-lite-latest"
+    assert payload.resolved_model == "gemini-3.1-flash-lite-preview"
   end
 
   test "hosted provider specs still fail before dispatch without credentials" do

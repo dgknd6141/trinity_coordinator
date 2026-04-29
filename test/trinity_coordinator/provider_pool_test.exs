@@ -71,6 +71,26 @@ defmodule TrinityCoordinator.ProviderPoolTest do
     assert ProviderPool.size(:default) > 0
   end
 
+  test "ships a Gemini CLI ASM pool for live route smokes" do
+    pool = ProviderPool.fetch!(:gemini_cli_asm)
+
+    assert length(pool) == 7
+    assert Enum.map(pool, & &1.id) == Enum.to_list(0..6)
+    assert Enum.all?(pool, &(&1.provider == :asm))
+    assert Enum.all?(pool, &(&1.model == "gemini-3.1-flash-lite-preview"))
+
+    spec = hd(pool)
+    query_opts = spec.metadata.inference_adapter_opts[:query_opts]
+    payload = query_opts[:model_payload]
+
+    assert spec.metadata.inference_provider == :gemini
+    assert query_opts[:lane] == :sdk
+    assert query_opts[:stream_timeout_ms] == 180_000
+    assert payload.requested_model == "gemini-3.1-flash-lite-latest"
+    assert payload.resolved_model == "gemini-3.1-flash-lite-preview"
+    assert payload.provider == :gemini
+  end
+
   test "supports explicit list pools" do
     explicit_pool = [
       [id: 0, provider: :openai, model: "gpt-4o-mini", base_url: nil],

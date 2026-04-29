@@ -158,6 +158,23 @@ OPENAI_API_KEY=... \
 XLA_TARGET=cuda12 mix test --only provider_smoke --trace
 ```
 
+Gemini CLI through ASM:
+
+```bash
+TRINITY_ENABLE_PROVIDER_DEMO=1 XLA_TARGET=cuda12 mix trinity.route.demo \
+  --profile qwen_sakana_adapted \
+  --provider-pool gemini_cli_asm \
+  --artifact-dir tmp/sakana_parity/adapted_artifacts_from_python \
+  --trace-out tmp/trinity_route_demo_gemini_cli_asm.jsonl
+```
+
+The `gemini_cli_asm` pool is credential-gated by the local Gemini CLI
+installation and routes through ASM's SDK lane with `gemini_cli_sdk` and
+`gemini-3.1-flash-lite-preview`. The April 29, 2026 readiness smoke attempted
+`gemini-3.1-flash-lite-latest`; the Gemini API returned model-not-found, so the
+pool keeps the attempted model in metadata and resolves to the working preview
+model for live smokes.
+
 Full non-provider gate:
 
 ```bash

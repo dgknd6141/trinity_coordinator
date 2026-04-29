@@ -13,7 +13,7 @@ defmodule Mix.Tasks.Trinity.Route.Demo do
 
       TRINITY_ENABLE_PROVIDER_DEMO=1 XLA_TARGET=cuda12 mix trinity.route.demo \
         --profile qwen_sakana_adapted \
-        --provider-pool configured \
+        --provider-pool gemini_cli_asm \
         --trace-out tmp/trinity_route_demo.jsonl
 
   This task never bypasses provider adapters. Missing credentials or provider

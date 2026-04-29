@@ -19,6 +19,58 @@ defmodule TrinityCoordinator.ProviderPool do
 
   alias TrinityCoordinator.ProviderPool.Spec
 
+  @gemini_cli_requested_model "gemini-3.1-flash-lite-latest"
+  @gemini_cli_asm_model "gemini-3.1-flash-lite-preview"
+  @gemini_cli_asm_model_payload %{
+    provider: :gemini,
+    requested_model: @gemini_cli_requested_model,
+    resolved_model: @gemini_cli_asm_model,
+    resolution_source: :explicit,
+    model_family: "gemini",
+    catalog_version: "trinity-manual-2026-04-29",
+    visibility: :public,
+    provider_backend: nil,
+    model_source: :external,
+    backend_metadata: %{
+      "configured_by" => "trinity_coordinator.provider_pool.gemini_cli_asm",
+      "requested_model" => @gemini_cli_requested_model,
+      "fallback_reason" => "requested model returned ModelNotFoundError in live ASM smoke"
+    }
+  }
+  @gemini_cli_asm_metadata %{
+    inference_provider: :gemini,
+    inference_adapter_opts: [
+      query_opts: [
+        lane: :sdk,
+        stream_timeout_ms: 180_000,
+        model_payload: @gemini_cli_asm_model_payload
+      ]
+    ]
+  }
+  @gemini_cli_asm_names [
+    :gemini_cli_asm_0,
+    :gemini_cli_asm_1,
+    :gemini_cli_asm_2,
+    :gemini_cli_asm_3,
+    :gemini_cli_asm_4,
+    :gemini_cli_asm_5,
+    :gemini_cli_asm_6
+  ]
+  @gemini_cli_asm_pool @gemini_cli_asm_names
+                       |> Enum.with_index()
+                       |> Enum.map(fn {name, id} ->
+                         [
+                           id: id,
+                           name: name,
+                           provider: :asm,
+                           model: @gemini_cli_asm_model,
+                           timeout_ms: 180_000,
+                           max_tokens: 256,
+                           temperature: 0.0,
+                           metadata: @gemini_cli_asm_metadata
+                         ]
+                       end)
+
   @type pool_name :: atom() | String.t()
   @type normalized_pool :: [Spec.t()]
 
@@ -40,7 +92,8 @@ defmodule TrinityCoordinator.ProviderPool do
       [id: 4, name: :mock_4, provider: :mock, model: "mock-agent-4"],
       [id: 5, name: :mock_5, provider: :mock, model: "mock-agent-5"],
       [id: 6, name: :mock_6, provider: :mock, model: "mock-agent-6"]
-    ]
+    ],
+    gemini_cli_asm: @gemini_cli_asm_pool
   }
 
   @doc "Returns the normalized provider pool for the given name."

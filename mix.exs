@@ -47,6 +47,8 @@ defmodule TrinityCoordinator.MixProject do
        override: true},
       {:exla, "~> 0.9"},
       {:inference, path: "../inference/apps/inference"},
+      {:agent_session_manager, path: "../agent_session_manager"},
+      {:gemini_cli_sdk, path: "../gemini_cli_sdk"},
       {:req, "~> 0.5"},
       {:credo, "~> 1.7", only: :dev, runtime: false},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},

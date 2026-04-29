@@ -157,6 +157,8 @@ Load pools from `config/runtime.exs` or application env. Document examples for:
 
 - OpenAI,
 - OpenAI-compatible local endpoints,
+- Gemini CLI through ASM with `provider: :asm`, `metadata.inference_provider:
+  :gemini`, and ASM `query_opts` selecting `lane: :sdk`,
 - disabled provider entries.
 
 Quality gate:
