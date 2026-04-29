@@ -45,6 +45,87 @@ The earlier experiment-reproduction lane, including sep-CMA-ES training and
 benchmark harness scaffolding, has been removed from the active codebase. The
 remaining mainline is the parity and service path.
 
+## Fresh Clone Setup
+
+The current development checkout is a small local workspace, not a single
+standalone repo. `trinity_coordinator` fetches most Hex/Git dependencies through
+`mix deps.get`, but the live provider lane still expects several first-party
+repositories to sit next to it on disk.
+
+Create this sibling layout:
+
+```text
+workspace/
+  trinity_coordinator/
+  agent_session_manager/
+  gemini_cli_sdk/
+  cli_subprocess_core/
+  execution_plane/
+```
+
+Clone the repos from `nshkrdotcom`:
+
+```bash
+mkdir trinity-workspace
+cd trinity-workspace
+
+git clone git@github.com:nshkrdotcom/trinity_coordinator.git
+git clone git@github.com:nshkrdotcom/agent_session_manager.git
+git clone git@github.com:nshkrdotcom/gemini_cli_sdk.git
+git clone git@github.com:nshkrdotcom/cli_subprocess_core.git
+git clone git@github.com:nshkrdotcom/execution_plane.git
+
+cd trinity_coordinator
+mix deps.get
+```
+
+Use HTTPS URLs instead of SSH if your GitHub account is not configured for SSH:
+
+```bash
+git clone https://github.com/nshkrdotcom/trinity_coordinator.git
+```
+
+Why the sibling repos are needed:
+
+- `trinity_coordinator` currently has local path dependencies on
+  `../agent_session_manager` and `../gemini_cli_sdk`.
+- `agent_session_manager` and `gemini_cli_sdk` use `../cli_subprocess_core`
+  when it is present.
+- `cli_subprocess_core` uses packages inside `../execution_plane` when that
+  workspace is present.
+- `inference` is already a GitHub dependency and is fetched by `mix deps.get`;
+  it does not need a sibling checkout for normal Trinity development.
+
+### Model And Artifact Setup
+
+The base coordinator model is `Qwen/Qwen3-0.6B`. You do not copy it into this
+repo manually. Bumblebee downloads it from Hugging Face into the normal local
+model cache the first time a Qwen-backed task runs.
+
+The Sakana-adapted runtime artifact is different: it is generated output and is
+not committed to git. A fresh clone will not contain:
+
+```text
+priv/sakana_trinity/adapted_qwen3_0_6b_layer26/
+```
+
+That directory is about 624 MB in the current local build and should contain:
+
+```text
+manifest.json
+router_head.safetensors
+checkpoints/*.safetensors
+```
+
+For normal onboarding, use a blessed artifact bundle and place it at the path
+above. After that, no Python setup is required for local route demos or mock
+orchestration.
+
+If you need to rebuild the artifact instead of copying a bundle, use the export
+and import workflow in [Sakana Artifacts And Export](guides/artifacts_and_export.md).
+That path loads Qwen and performs SVD/SVF work, so it is heavier than normal
+first-run setup.
+
 ## Current Status
 
 Working now:
@@ -95,9 +176,9 @@ Current parity result:
   `artifact_layout=checkpoint_directory`, `selected_tensor_count=9`,
   `selected_singular_value_count=9216`, `loaded_tensor_count=9`, and
   `target_verified_count=9`.
-- Adapted coordinator validation passes against
-  `tmp/sakana_parity/adapted_artifacts_from_python`; the observed fixed-route
-  smoke selected `agent_id=4`, `role_id=0`, public role `Worker`.
+- Adapted coordinator validation passes against the promoted canonical artifact
+  at `priv/sakana_trinity/adapted_qwen3_0_6b_layer26`; a representative
+  fixed-route smoke selected `agent_id=4`, `role_id=0`, public role `Worker`.
 - Router trace parity passes with exact token ids and head hash, exact
   `agent_id=4`/`role_id=0`, hidden cosine `0.99449`, and logits cosine
   `0.99743`.
@@ -128,17 +209,22 @@ Runnable reviewer examples are in [Examples](examples/README.md).
 Additional technical reference notes are included in HexDocs under
 `Reference Notes`.
 
-For implementation handoff work, the private checklist
-`docs/priv/20260428/06_next_phase_execution_checklist.md` is the current
-next-phase task board.
+Private implementation notes may exist under `docs/priv/` in internal
+workspaces, but they are not required for fresh-clone onboarding.
 
 ## Requirements
 
 - Elixir `~> 1.18`.
 - NVIDIA driver visible to `nvidia-smi`.
-- `XLA_TARGET=cuda12`.
-- Internet access for first-time Hugging Face model downloads.
-- Python with PyTorch, Transformers, and safetensors for parity scripts.
+- `XLA_TARGET=cuda12` for Qwen-backed coordinator runs.
+- Internet access for the first Hugging Face download of `Qwen/Qwen3-0.6B`.
+- The sibling first-party repos listed in [Fresh Clone Setup](#fresh-clone-setup).
+- The generated adapted artifact directory at
+  `priv/sakana_trinity/adapted_qwen3_0_6b_layer26/` for route demos.
+- Python with PyTorch, Transformers, and safetensors only when rebuilding
+  artifacts or running parity scripts.
+- Gemini CLI authentication only when running live `gemini_cli_asm` provider
+  demos.
 
 Resolved core dependency lane:
 
@@ -150,13 +236,33 @@ Resolved core dependency lane:
 
 ## Quick Verification
 
-Run the fast Elixir suite:
+First confirm dependencies resolve and the non-provider test suite passes:
 
 ```bash
+mix deps.get
 XLA_TARGET=cuda12 mix test
 ```
 
-Run static checks:
+Then verify the adapted local coordinator, assuming the generated artifact
+directory has been installed:
+
+```bash
+XLA_TARGET=cuda12 mix trinity.hitl.adapted \
+  --message "What is 17 + 25? Answer briefly."
+```
+
+This should print the artifact identity, Qwen hidden-vector shape, router logits,
+selected agent id, and selected role name.
+
+Run the safe mock orchestration demo:
+
+```bash
+XLA_TARGET=cuda12 mix trinity.route.demo \
+  --mock \
+  --trace-out tmp/trinity_route_demo.jsonl
+```
+
+Run static checks before committing:
 
 ```bash
 mix format --check-formatted
@@ -223,12 +329,11 @@ stage parity passes.
 
 ## Adapted Coordinator Smoke
 
-After generating and importing the full Python semantic export, validate the
-live adapted Qwen coordinator directly:
+After installing the canonical artifact directory, validate the live adapted
+Qwen coordinator directly:
 
 ```bash
-XLA_TARGET=cuda12 mix trinity.hitl.adapted \
-  --artifact-dir tmp/sakana_parity/adapted_artifacts_from_python
+XLA_TARGET=cuda12 mix trinity.hitl.adapted
 ```
 
 This proves the runtime shape contract:
@@ -257,7 +362,7 @@ uv run --python 3.11 \
   --with accelerate==1.6.0 \
   --with safetensors \
   python priv/sakana_trinity/scripts/debug_sakana_router_trace.py \
-    --artifact-dir tmp/sakana_parity/adapted_artifacts_from_python \
+    --artifact-dir priv/sakana_trinity/adapted_qwen3_0_6b_layer26 \
     --device cpu \
     --model-torch-dtype bfloat16 \
     --out tmp/sakana_parity/python_router_trace_bf16_cpu.json
@@ -267,7 +372,7 @@ Compare from Elixir:
 
 ```bash
 XLA_TARGET=cuda12 mix trinity.sakana.router_trace \
-  --artifact-dir tmp/sakana_parity/adapted_artifacts_from_python \
+  --artifact-dir priv/sakana_trinity/adapted_qwen3_0_6b_layer26 \
   --python-report tmp/sakana_parity/python_router_trace_bf16_cpu.json \
   --out tmp/sakana_parity/elixir_router_trace.json
 ```
@@ -333,7 +438,6 @@ Run the adapted mock-provider loop:
 
 ```bash
 XLA_TARGET=cuda12 mix trinity.hitl.mock_loop \
-  --artifact-dir tmp/sakana_parity/adapted_artifacts_from_python \
   --trace-out tmp/trinity_mock_trace.jsonl
 ```
 
@@ -342,7 +446,6 @@ Run the safe route demo:
 ```bash
 XLA_TARGET=cuda12 mix trinity.route.demo \
   --mock \
-  --artifact-dir tmp/sakana_parity/adapted_artifacts_from_python \
   --trace-out tmp/trinity_route_demo.jsonl
 ```
 
@@ -352,7 +455,6 @@ Live provider mode is explicitly gated:
 TRINITY_ENABLE_PROVIDER_DEMO=1 XLA_TARGET=cuda12 mix trinity.route.demo \
   --profile qwen_sakana_adapted \
   --provider-pool gemini_cli_asm \
-  --artifact-dir tmp/sakana_parity/adapted_artifacts_from_python \
   --trace-out tmp/trinity_route_demo.jsonl
 ```
 
@@ -372,7 +474,7 @@ Local coordinator routing:
 
 ```bash
 XLA_TARGET=cuda12 mix run examples/local_coordinator_route.exs -- \
-  --artifact-dir tmp/sakana_parity/adapted_artifacts_from_python \
+  --artifact-dir priv/sakana_trinity/adapted_qwen3_0_6b_layer26 \
   --prompt "Select a TRINITY role for this reasoning task."
 ```
 
@@ -380,7 +482,7 @@ Mock orchestration trace:
 
 ```bash
 XLA_TARGET=cuda12 mix run examples/mock_orchestration_trace.exs -- \
-  --artifact-dir tmp/sakana_parity/adapted_artifacts_from_python \
+  --artifact-dir priv/sakana_trinity/adapted_qwen3_0_6b_layer26 \
   --prompt "Select a TRINITY role for this reasoning task." \
   --trace-out tmp/examples/mock_orchestration_trace.jsonl
 ```
