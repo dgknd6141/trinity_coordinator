@@ -7,8 +7,8 @@ defmodule TrinityCoordinator.Verifier do
       ACCEPT | REVISE
 
   with an optional diagnosis after the status token.  This module keeps that
-  contract explicit so orchestration, training, benchmarks, and traces do not
-  have to rely on ad-hoc string-prefix checks.
+  contract explicit so orchestration and traces do not have to rely on ad-hoc
+  string-prefix checks.
   """
 
   @enforce_keys [:status, :raw]
@@ -97,9 +97,8 @@ defmodule TrinityCoordinator.Verifier do
   @doc """
   Converts unknown verifier output into the safe non-accepting control status.
 
-  The parser preserves `:unknown` for diagnostics, but loop control, reward
-  shaping, and benchmark summaries should treat unknown verifier text as
-  revision rather than acceptance.
+  The parser preserves `:unknown` for diagnostics, but loop control should treat
+  unknown verifier text as revision rather than acceptance.
   """
   @spec safe_status(t()) :: :accepted | :revised
   def safe_status(%__MODULE__{status: :accepted}), do: :accepted

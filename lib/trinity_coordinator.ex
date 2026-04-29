@@ -5,13 +5,13 @@ defmodule TrinityCoordinator do
   The core implementation lives in the focused modules:
 
   - `TrinityCoordinator.Extractor` for real SLM hidden-state extraction.
-  - `TrinityCoordinator.CoordinationHead` for real Axon routing and training.
+  - `TrinityCoordinator.CoordinationHead` for real Axon routing.
   - `TrinityCoordinator.Orchestrator` for multi-turn routing.
   - `TrinityCoordinator.Runtime` for EXLA/CUDA checks.
   """
 
   @roles %{0 => "Worker", 1 => "Thinker", 2 => "Verifier"}
-  @gpu_demo_command "XLA_TARGET=cuda12 mix trinity.demo"
+  @gpu_demo_command "XLA_TARGET=cuda12 mix trinity.route.demo --mock"
 
   @doc """
   Returns the canonical TRINITY role map.

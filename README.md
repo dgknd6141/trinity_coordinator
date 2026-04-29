@@ -41,10 +41,9 @@ The active lane is:
 6. Run the adapted small local coordinator in front of real provider-backed
    LLM calls.
 
-The earlier experiment-reproduction lane, including sep-CMA-ES training
-reproduction work, is shelved. It remains in the repository for now, but the
-planned direction is to remove or archive it once the parity and service path is
-fully stable.
+The earlier experiment-reproduction lane, including sep-CMA-ES training and
+benchmark harness scaffolding, has been removed from the active codebase. The
+remaining mainline is the parity and service path.
 
 ## Current Status
 

@@ -48,8 +48,7 @@ Not complete yet:
 
 - Final `bf16` byte hash equality with Python remains aspirational.
 - Live provider smokes are still credential-gated and not part of default tests.
-- The old experiment-reproduction lane is shelved and should be removed or
-  archived once this parity lane is fully stable.
+- The old experiment-reproduction lane has been removed from active code.
 - The supplemental Python submission has been audited for runtime semantics.
   Its checkpoint metadata is the source of truth for agent order, role order,
   selected SVF layer, turn budget, and router hidden extraction mode.

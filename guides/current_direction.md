@@ -44,24 +44,13 @@ agents, five coordination turns, a biasless linear `{10, 1024}` head, no
 generation for router hidden extraction, and role order `solver`, `thinker`,
 `verifier`. The paper's `Worker` role maps to the Python code's `solver` role.
 
-## Planned Cleanup
+## Removed Experiment Lane
 
-After the Qwen/Sakana parity and runtime artifact path is stable, remove or
-archive the shelved experiment-reproduction code from the mainline.
-
-Candidate areas to audit later:
-
-- sep-CMA-ES trainer modules;
-- old anti-agent or benchmark scaffolding that no longer describes the active
-  project;
-- provider-heavy experiment scripts;
-- stale README/changelog claims from earlier research lanes;
-- tests that validate abandoned experiment infrastructure rather than the
-  service-facing coordinator.
-
-Do not remove that code during parity work unless it blocks correctness. The
-near-term priority is to finish the validated coordinator path without adding a
-large cleanup diff on top.
+The shelved experiment-reproduction code has been removed from the active
+mainline. That includes sep-CMA-ES trainer modules, benchmark harness modules,
+their tests, and the old supervised-training `trinity.demo` behavior. The
+remaining command surface should describe the validated artifact and service
+path.
 
 ## Near-Term Milestones
 
@@ -116,7 +105,9 @@ large cleanup diff on top.
 6. Replace provider mocks with explicit gated smoke tests against real
    OpenAI-compatible endpoints.
 7. Add trace persistence around every route decision.
-8. Remove or archive shelved experiment-reproduction code.
+8. Remove shelved experiment-reproduction code.
+   - Status: complete for mainline sep-CMA-ES, benchmark harness, and old
+     supervised-demo surfaces.
 
 The private implementation handoff for these first five items is
 `docs/priv/20260428/06_next_phase_execution_checklist.md`.

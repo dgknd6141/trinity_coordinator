@@ -3,8 +3,8 @@
 This guide describes how to persist every routed TRINITY turn in a reproducible,
 auditable format.
 
-Trace persistence is the backbone for training, benchmarking, debugging, and
-provider-budget safety. A routed turn should leave enough structured evidence to
+Trace persistence is the backbone for debugging and provider-budget safety. A
+routed turn should leave enough structured evidence to
 answer: what transcript was routed, what hidden-state representation was used,
 what logits were produced, which agent and role were selected, what provider was
 called, and why the loop stopped or continued.
@@ -88,13 +88,6 @@ Minimum event set:
 - `:turn_completed`
 - `:run_completed`
 - `:run_failed`
-
-Training and benchmark work may add:
-
-- `:candidate_sampled`
-- `:candidate_evaluated`
-- `:generation_completed`
-- `:benchmark_case_completed`
 
 ## Redaction Rules
 

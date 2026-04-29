@@ -99,11 +99,9 @@ defmodule TrinityCoordinator.MixProject do
         "docs/sakana_svd_parity_debug_checklist.md",
         "docs/elixir_svd_decomposition.md",
         "docs/production_qwen_slm_profile.md",
-        "docs/sep_cma_es_training.md",
         "docs/coordination_head_variants.md",
         "docs/trace_persistence.md",
         "docs/configurable_provider_pools.md",
-        "docs/benchmark_harnesses.md",
         "docs/provider_smoke_tests.md",
         "CHANGELOG.md",
         "LICENSE"

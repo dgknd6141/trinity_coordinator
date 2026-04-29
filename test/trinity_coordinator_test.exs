@@ -7,6 +7,7 @@ defmodule TrinityCoordinatorTest do
   end
 
   test "exposes the real GPU demo command" do
-    assert TrinityCoordinator.gpu_demo_command() == "XLA_TARGET=cuda12 mix trinity.demo"
+    assert TrinityCoordinator.gpu_demo_command() ==
+             "XLA_TARGET=cuda12 mix trinity.route.demo --mock"
   end
 end
