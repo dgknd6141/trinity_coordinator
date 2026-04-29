@@ -46,7 +46,7 @@ defmodule TrinityCoordinator.MixProject do
        ref: "0fd8114cf5429af9236f100f3350986e9d823c02",
        override: true},
       {:exla, "~> 0.9"},
-      {:inference, path: "../inference/apps/inference"},
+      {:inference, github: "nshkrdotcom/inference", sparse: "apps/inference"},
       {:agent_session_manager, path: "../agent_session_manager"},
       {:gemini_cli_sdk, path: "../gemini_cli_sdk"},
       {:req, "~> 0.5"},

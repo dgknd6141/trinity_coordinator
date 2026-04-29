@@ -86,7 +86,7 @@ defmodule TrinityCoordinator.ProviderPoolTest do
     assert spec.metadata.inference_provider == :gemini
     assert query_opts[:lane] == :sdk
     assert query_opts[:stream_timeout_ms] == 180_000
-    assert payload.requested_model == "gemini-3.1-flash-lite-latest"
+    assert payload.requested_model == "gemini-3.1-flash-lite-preview"
     assert payload.resolved_model == "gemini-3.1-flash-lite-preview"
     assert payload.provider == :gemini
   end

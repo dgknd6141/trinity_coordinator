@@ -361,10 +361,8 @@ provider demo mode fails before dispatch.
 
 The built-in `gemini_cli_asm` pool routes all seven TRINITY agents through
 `Inference.Adapters.ASM`, ASM's SDK lane, and `gemini_cli_sdk` using
-`gemini-3.1-flash-lite-preview`. The service-readiness smoke attempted
-`gemini-3.1-flash-lite-latest`, but the Gemini API returned model-not-found on
-April 29, 2026. The Gemini CLI must be installed or reachable through the SDK's
-`npx` fallback and authenticated in the runtime environment.
+`gemini-3.1-flash-lite-preview`. The Gemini CLI must be installed or reachable
+through the SDK's `npx` fallback and authenticated in the runtime environment.
 
 ## Examples
 

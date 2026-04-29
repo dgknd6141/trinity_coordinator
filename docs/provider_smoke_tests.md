@@ -170,10 +170,7 @@ TRINITY_ENABLE_PROVIDER_DEMO=1 XLA_TARGET=cuda12 mix trinity.route.demo \
 
 The `gemini_cli_asm` pool is credential-gated by the local Gemini CLI
 installation and routes through ASM's SDK lane with `gemini_cli_sdk` and
-`gemini-3.1-flash-lite-preview`. The April 29, 2026 readiness smoke attempted
-`gemini-3.1-flash-lite-latest`; the Gemini API returned model-not-found, so the
-pool keeps the attempted model in metadata and resolves to the working preview
-model for live smokes.
+`gemini-3.1-flash-lite-preview`.
 
 Full non-provider gate:
 

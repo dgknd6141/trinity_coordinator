@@ -19,11 +19,10 @@ defmodule TrinityCoordinator.ProviderPool do
 
   alias TrinityCoordinator.ProviderPool.Spec
 
-  @gemini_cli_requested_model "gemini-3.1-flash-lite-latest"
   @gemini_cli_asm_model "gemini-3.1-flash-lite-preview"
   @gemini_cli_asm_model_payload %{
     provider: :gemini,
-    requested_model: @gemini_cli_requested_model,
+    requested_model: @gemini_cli_asm_model,
     resolved_model: @gemini_cli_asm_model,
     resolution_source: :explicit,
     model_family: "gemini",
@@ -33,8 +32,7 @@ defmodule TrinityCoordinator.ProviderPool do
     model_source: :external,
     backend_metadata: %{
       "configured_by" => "trinity_coordinator.provider_pool.gemini_cli_asm",
-      "requested_model" => @gemini_cli_requested_model,
-      "fallback_reason" => "requested model returned ModelNotFoundError in live ASM smoke"
+      "requested_model" => @gemini_cli_asm_model
     }
   }
   @gemini_cli_asm_metadata %{

@@ -110,7 +110,7 @@ defmodule TrinityCoordinator.AgentPoolInferenceTest do
     assert request.model == "gemini-3.1-flash-lite-preview"
     assert query_opts[:lane] == :sdk
     assert payload.provider == :gemini
-    assert payload.requested_model == "gemini-3.1-flash-lite-latest"
+    assert payload.requested_model == "gemini-3.1-flash-lite-preview"
     assert payload.resolved_model == "gemini-3.1-flash-lite-preview"
   end
 
