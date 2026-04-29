@@ -35,7 +35,8 @@ Compatibility mode should mirror the supplemental Python loop:
 - Router vector conversion.
 - SVD/SVF reconstruction mechanics.
 - Artifact loader and manifest validation.
-- OpenAI-compatible provider boundary.
+- Shared `:inference` provider boundary through
+  `TrinityCoordinator.AgentPool.Inference`.
 - Trace hashing and JSONL helpers.
 
 ## What Remains Before Service Use
@@ -47,7 +48,8 @@ The implementation order is:
 3. adapted Qwen coordinator profile validation - complete;
 4. fixed-transcript router trace parity - complete;
 5. runtime service loop with trace persistence and provider adapters - complete
-   for the mock-provider smoke lane.
+   for the mock-provider smoke lane, with hosted/GeminiEx/ASM specs mapped
+   through the shared `:inference` boundary.
 
 Router trace parity is now the gate that caught the square k/v orientation bug:
 the adapted profile loaded and emitted logits, but Python and Elixir disagreed
@@ -67,7 +69,8 @@ Complete adapted artifact validation:
 Strengthen provider integration:
 
 - define provider pools for the intended deployment;
-- replace mock-heavy checks with explicit credential-gated smoke tests;
+- add explicit credential-gated smoke tests for the selected `:inference`
+  adapters;
 - record provider model, endpoint, latency, and error class in traces;
 - make provider failure behavior explicit.
 

@@ -85,6 +85,27 @@ defmodule TrinityCoordinator.ProviderPoolTest do
     assert Enum.at(normalized, 1).id == 1
   end
 
+  test "normalizes shared inference provider specs" do
+    specs =
+      Spec.normalize!([
+        [id: 0, provider: :gemini, model: "gemini-3.1-flash-lite-preview"],
+        [id: 1, provider: :gemini_ex, model: "gemini-3.1-flash-lite-preview"],
+        [id: 2, provider: :asm, model: "codex-local"],
+        [id: 3, provider: :agent_session_manager, model: "gemini-cli"],
+        [id: 4, provider: :anthropic, model: "claude-haiku-4-5"]
+      ])
+
+    assert Enum.map(specs, & &1.provider) == [
+             :gemini,
+             :gemini_ex,
+             :asm,
+             :agent_session_manager,
+             :anthropic
+           ]
+
+    assert :ok == Spec.validate(specs)
+  end
+
   test "openai-compatible base URL is carried through spec normalization" do
     normalized =
       Spec.normalize!([

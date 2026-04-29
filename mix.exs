@@ -46,6 +46,7 @@ defmodule TrinityCoordinator.MixProject do
        ref: "0fd8114cf5429af9236f100f3350986e9d823c02",
        override: true},
       {:exla, "~> 0.9"},
+      {:inference, path: "../inference/apps/inference"},
       {:req, "~> 0.5"},
       {:credo, "~> 1.7", only: :dev, runtime: false},
       {:dialyxir, "~> 1.4", only: :dev, runtime: false},
@@ -132,6 +133,7 @@ defmodule TrinityCoordinator.MixProject do
           TrinityCoordinator.Verifier,
           TrinityCoordinator.AgentPool,
           TrinityCoordinator.AgentPool.Adapter,
+          TrinityCoordinator.AgentPool.Inference,
           TrinityCoordinator.AgentPool.OpenAI
         ]
       ],

@@ -39,8 +39,8 @@ Expected evidence:
 ## Mock Orchestration Trace
 
 This example proves the adapted coordinator can drive the orchestrator through
-role injection, the mock provider boundary, verifier termination, and JSONL
-trace persistence.
+role injection, the provider boundary, verifier termination, and JSONL trace
+persistence while using deterministic mock responses.
 
 ```bash
 XLA_TARGET=cuda12 mix run examples/mock_orchestration_trace.exs -- \
@@ -60,8 +60,10 @@ Expected evidence:
 
 ## Live Providers
 
-Live provider calls are not part of these examples. Use the gated route demo
-only after a real provider pool is configured:
+Live provider calls are not part of these examples. Hosted, GeminiEx, and Agent
+Session Manager specs are routed through the shared `:inference` package by
+`TrinityCoordinator.AgentPool.Inference`; use the gated route demo only after a
+real provider pool is configured:
 
 ```bash
 TRINITY_ENABLE_PROVIDER_DEMO=1 XLA_TARGET=cuda12 mix trinity.route.demo \

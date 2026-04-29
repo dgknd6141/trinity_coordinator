@@ -85,7 +85,8 @@ for the Elixir service:
 `TrinityCoordinator.AgentPool`
 
 - Defines the provider boundary.
-- Supports OpenAI-compatible runtime calls when configured.
+- Maps hosted, GeminiEx, and Agent Session Manager specs into shared
+  `Inference.Client` requests through `TrinityCoordinator.AgentPool.Inference`.
 - Allows tests to avoid pretending that provider calls happened.
 
 ## Artifact Data Flow

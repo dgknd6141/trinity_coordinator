@@ -163,7 +163,16 @@ defmodule TrinityCoordinator.ProviderPool.Spec do
           enabled: boolean()
         }
 
-  @known_providers [:openai, :openai_compatible, :mock]
+  @known_providers [
+    :openai,
+    :openai_compatible,
+    :gemini,
+    :gemini_ex,
+    :anthropic,
+    :asm,
+    :agent_session_manager,
+    :mock
+  ]
 
   def normalize(raw) when is_list(raw) do
     with {:ok, specs} <- normalize_list(raw, []) do

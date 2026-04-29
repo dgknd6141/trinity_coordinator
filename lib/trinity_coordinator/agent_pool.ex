@@ -16,7 +16,7 @@ defmodule TrinityCoordinator.AgentPool do
     6 => %{provider: :openai, model: "gpt-4o-mini"}
   }
 
-  alias TrinityCoordinator.AgentPool.{Mock, OpenAI, OpenAICompatible}
+  alias TrinityCoordinator.AgentPool.{Inference, Mock}
   alias TrinityCoordinator.ProviderPool
 
   @doc """
@@ -153,11 +153,26 @@ defmodule TrinityCoordinator.AgentPool do
     end
   end
 
-  defp adapter_from_provider(:openai), do: {:ok, OpenAI}
-  defp adapter_from_provider("openai"), do: {:ok, OpenAI}
+  defp adapter_from_provider(:openai), do: {:ok, Inference}
+  defp adapter_from_provider("openai"), do: {:ok, Inference}
 
-  defp adapter_from_provider(:openai_compatible), do: {:ok, OpenAICompatible}
-  defp adapter_from_provider("openai_compatible"), do: {:ok, OpenAICompatible}
+  defp adapter_from_provider(:openai_compatible), do: {:ok, Inference}
+  defp adapter_from_provider("openai_compatible"), do: {:ok, Inference}
+
+  defp adapter_from_provider(:gemini), do: {:ok, Inference}
+  defp adapter_from_provider("gemini"), do: {:ok, Inference}
+
+  defp adapter_from_provider(:gemini_ex), do: {:ok, Inference}
+  defp adapter_from_provider("gemini_ex"), do: {:ok, Inference}
+
+  defp adapter_from_provider(:anthropic), do: {:ok, Inference}
+  defp adapter_from_provider("anthropic"), do: {:ok, Inference}
+
+  defp adapter_from_provider(:asm), do: {:ok, Inference}
+  defp adapter_from_provider("asm"), do: {:ok, Inference}
+
+  defp adapter_from_provider(:agent_session_manager), do: {:ok, Inference}
+  defp adapter_from_provider("agent_session_manager"), do: {:ok, Inference}
 
   defp adapter_from_provider(:mock), do: {:ok, Mock}
   defp adapter_from_provider("mock"), do: {:ok, Mock}

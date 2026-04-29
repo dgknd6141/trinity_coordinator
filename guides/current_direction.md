@@ -108,7 +108,11 @@ large cleanup diff on top.
    - Qwen hidden state extracted;
    - Sakana router head selected;
    - role injected;
-   - provider adapter called.
+   - provider adapter called through the shared `:inference` boundary.
+   - Status: complete for the safe mock lane and implemented for hosted,
+     GeminiEx, and Agent Session Manager specs through
+     `TrinityCoordinator.AgentPool.Inference`; live provider smoke remains
+     credential-gated.
 6. Replace provider mocks with explicit gated smoke tests against real
    OpenAI-compatible endpoints.
 7. Add trace persistence around every route decision.

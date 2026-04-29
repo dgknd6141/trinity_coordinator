@@ -22,6 +22,9 @@
   continuing to report final `bf16` byte mismatches separately.
 - Normalized runtime role metadata to imported checkpoint order:
   raw Python `solver` is public `Worker`, then `Thinker`, then `Verifier`.
+- Added the shared `:inference` dependency and routed hosted, GeminiEx, and
+  Agent Session Manager provider specs through a generic
+  `TrinityCoordinator.AgentPool.Inference` consumer adapter.
 
 ## 2026-04-21
 

@@ -40,14 +40,14 @@ Working today:
   by reading Python's `stage.source_f32`, checks only the preferred `torch_v`
   layout, and runs the reconstruction through EXLA rather than a slow host CPU
   matmul.
+- Hosted, GeminiEx, and Agent Session Manager provider specs now enter the
+  shared `:inference` package through `TrinityCoordinator.AgentPool.Inference`.
 - `--strict-stage-tolerances` is the required functional correctness gate.
 
 Not complete yet:
 
 - Final `bf16` byte hash equality with Python remains aspirational.
-- The adapted Qwen profile still needs a complete service-facing validation
-  path.
-- Provider LLM calls are still mostly at the boundary/mock phase in tests.
+- Live provider smokes are still credential-gated and not part of default tests.
 - The old experiment-reproduction lane is shelved and should be removed or
   archived once this parity lane is fully stable.
 - The supplemental Python submission has been audited for runtime semantics.

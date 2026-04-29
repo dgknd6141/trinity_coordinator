@@ -18,6 +18,8 @@ Implemented and verified:
 - verifier-before-worker fails before provider dispatch;
 - max-turn exhaustion returns the latest Worker response when one exists;
 - provider success and failure are persisted to JSONL trace with latency;
+- hosted, GeminiEx, and Agent Session Manager provider specs enter the shared
+  `:inference` package through `TrinityCoordinator.AgentPool.Inference`;
 - `examples/` includes local routing and mock orchestration runs.
 
 Not implemented in this checkpoint:
@@ -37,6 +39,8 @@ Use red-green-refactor and commit/push only after the listed quality gates pass.
 1. Provider pool configuration
    - Add a documented `configured` provider pool for the target deployment.
    - Validate contiguous agent ids `0..6`.
+   - Use shared `:inference` adapters rather than app-local provider-specific
+     transport code for new provider integrations.
    - Record provider name, model, endpoint, timeout, max tokens, and
      temperature in traces.
    - Keep credentials in environment variables only.

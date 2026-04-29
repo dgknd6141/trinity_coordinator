@@ -325,8 +325,10 @@ The intended service path is:
 7. Dispatch to a configured LLM provider.
 8. Persist trace metadata for audit and debugging.
 
-Provider LLM integration is still being hardened. Tests verify the router and
-provider boundary without pretending that external LLM calls happened.
+Provider dispatch now enters the shared `:inference` boundary through
+`TrinityCoordinator.AgentPool.Inference` for hosted, GeminiEx, and Agent Session
+Manager specs. Live calls are still explicitly gated; tests verify routing and
+provider-boundary behavior without pretending that external LLM calls happened.
 
 Run the adapted mock-provider loop:
 
