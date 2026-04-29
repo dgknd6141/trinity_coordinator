@@ -102,6 +102,30 @@ def collect_stage_checks(report: dict[str, Any]) -> list[dict[str, Any]]:
     return checks
 
 
+def collect_large_tensor_chunk_checks(report: dict[str, Any]) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    for chunk in report.get("large_tensor_chunk_checks", []) or []:
+        if not isinstance(chunk, dict):
+            continue
+        stage_debug = chunk.get("stage_debug")
+        chunk_checks = chunk.get("checks")
+        if isinstance(stage_debug, dict):
+            chunk_checks = stage_debug.get("checks", chunk_checks)
+        if not isinstance(chunk_checks, list):
+            continue
+        for check in chunk_checks:
+            if isinstance(check, dict):
+                check = dict(check)
+                check["variant_label"] = chunk.get("label")
+                check["source_name"] = chunk.get("source_name")
+                check["elixir_name"] = chunk.get("elixir_name")
+                check["chunk_index"] = chunk.get("chunk_index")
+                check["row_start"] = chunk.get("row_start")
+                check["row_end"] = chunk.get("row_end")
+                checks.append(check)
+    return checks
+
+
 def first_stage_file(report: dict[str, Any], *, preferred_label_contains: str | None = None) -> str | None:
     if preferred_label_contains is None:
         stage = report.get("stage_debug", {})
@@ -174,6 +198,72 @@ def print_stage_checks(checks: list[dict[str, Any]]) -> bool:
             print(
                 "    "
                 f"{check.get('source_name') or '(sample)'} {check.get('stage')} "
+                f"max_abs={check.get('max_abs_error')} mean_abs={check.get('mean_abs_error')} "
+                f"required={boolish(check.get('required_for_functional_parity'))}"
+            )
+
+    return all_required_passed
+
+
+def print_large_tensor_chunk_checks(checks: list[dict[str, Any]]) -> bool:
+    if not checks:
+        print("\nLarge tensor chunk checks: (none)")
+        return False
+
+    print("\nLarge tensor chunk checks against Python stage tensors:")
+    sources = sorted({str(check.get("source_name")) for check in checks if check.get("source_name")})
+    chunks = {
+        (
+            check.get("source_name"),
+            check.get("chunk_index"),
+            check.get("row_start"),
+            check.get("row_end"),
+        )
+        for check in checks
+    }
+    required_checks = [
+        check for check in checks if boolish(check.get("required_for_functional_parity"))
+    ]
+    failed_required = [
+        check for check in required_checks if not boolish(check.get("functional_passed"))
+    ]
+    print(
+        "  "
+        f"selected_tensors_checked={len(sources) if sources else 'unknown'} "
+        f"chunks_checked={len(chunks)} total_checks={len(checks)} "
+        f"required_checks={len(required_checks)} failed_required={len(failed_required)}"
+    )
+
+    all_required_passed = True
+    for check in failed_required[:20]:
+        all_required_passed = False
+        print(
+            "  "
+            f"FAILED {check.get('source_name')} chunk={check.get('chunk_index')} "
+            f"rows={check.get('row_start')}:{check.get('row_end')} {check.get('stage')}: "
+            f"max_abs={check.get('max_abs_error')} mean_abs={check.get('mean_abs_error')} "
+            f"mismatches={check.get('mismatched_element_count')} "
+            f"tol={check.get('tolerance')}"
+        )
+    if len(failed_required) > 20:
+        print(f"  ... {len(failed_required) - 20} additional required failures omitted")
+
+    worst = sorted(
+        (
+            check
+            for check in checks
+            if isinstance(check.get("max_abs_error"), (int, float))
+        ),
+        key=lambda check: float(check.get("max_abs_error", 0.0)),
+        reverse=True,
+    )[:5]
+    if worst:
+        print("  worst_max_abs_large_chunks:")
+        for check in worst:
+            print(
+                "    "
+                f"{check.get('source_name')} chunk={check.get('chunk_index')} "
+                f"rows={check.get('row_start')}:{check.get('row_end')} {check.get('stage')} "
                 f"max_abs={check.get('max_abs_error')} mean_abs={check.get('mean_abs_error')} "
                 f"required={boolish(check.get('required_for_functional_parity'))}"
             )
@@ -269,7 +359,9 @@ def main() -> None:
         print("  (none)")
 
     stage_checks = collect_stage_checks(ex)
+    large_tensor_chunk_checks = collect_large_tensor_chunk_checks(ex)
     stage_ok = print_stage_checks(stage_checks)
+    large_tensor_chunk_ok = print_large_tensor_chunk_checks(large_tensor_chunk_checks)
     print_top_diffs(
         first_stage_file(py),
         first_stage_file(ex, preferred_label_contains="host_binary_v_layout_torch_v"),
@@ -286,8 +378,13 @@ def main() -> None:
         if not baseline_digest or not any(digest == baseline_digest for digest in ex_hashes.values()):
             raise SystemExit("strict current-Python comparison failed")
 
-    if args.strict_stage_tolerances and not stage_ok:
-        raise SystemExit("strict stage-tolerance comparison failed")
+    if args.strict_stage_tolerances:
+        if not stage_checks and not large_tensor_chunk_checks:
+            raise SystemExit("strict stage-tolerance comparison failed: no stage checks found")
+        if stage_checks and not stage_ok:
+            raise SystemExit("strict stage-tolerance comparison failed")
+        if large_tensor_chunk_checks and not large_tensor_chunk_ok:
+            raise SystemExit("strict large-tensor chunk stage-tolerance comparison failed")
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
   """
 
   alias TrinityCoordinator.{Runtime, SLMProfile}
-  alias TrinityCoordinator.Sakana.{Artifact, SVD}
+  alias TrinityCoordinator.Sakana.{Artifact, StageCheck, SVD}
 
   @router_vector_path "priv/sakana_trinity/artifacts/trinity_router_es_vector.safetensors"
   @reference_manifest_path "priv/sakana_trinity/reference/sakana_python_reference_manifest.json"
@@ -614,7 +614,8 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
             sample_reconstruct_f32_host
           )
 
-        stage_checks = compare_stage_tensors(stage_tensors, stage_context.python_tensors)
+        stage_checks =
+          StageCheck.compare_stage_tensors(stage_tensors, stage_context.python_tensors)
 
         stage_file =
           maybe_write_stage_tensors(
@@ -654,7 +655,7 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
         "source_name" => Map.get(stage_context, :source_name, sample["source_name"]),
         "elixir_name" => Map.get(stage_context, :elixir_name, sample["elixir_name"]),
         "compared_to_python_stage_tensors" => not is_nil(stage_context.python_tensors),
-        "functional_parity_passed" => stage_checks_passed?(stage_checks),
+        "functional_parity_passed" => StageCheck.checks_passed?(stage_checks),
         "checks" => stage_checks
       },
       "observed_bf16_sha256" => observed,
@@ -738,122 +739,6 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
     Safetensors.write!(path, payload)
     path
   end
-
-  defp compare_stage_tensors(_stage_tensors, nil), do: []
-
-  defp compare_stage_tensors(stage_tensors, python_stage_tensors) do
-    stage_tensors
-    |> Enum.sort_by(fn {key, _tensor} -> key end)
-    |> Enum.map(fn {key, tensor} ->
-      case Map.fetch(python_stage_tensors, key) do
-        {:ok, python_tensor} -> stage_check(key, tensor, python_tensor)
-        :error -> missing_stage_check(key)
-      end
-    end)
-  end
-
-  defp stage_check(key, elixir_tensor, python_tensor) do
-    tolerance = stage_tolerance(key)
-    shape_match = Nx.shape(elixir_tensor) == Nx.shape(python_tensor)
-    byte_match = Artifact.tensor_sha256(elixir_tensor) == Artifact.tensor_sha256(python_tensor)
-
-    if shape_match do
-      stage_value_check(key, elixir_tensor, python_tensor, tolerance, byte_match)
-    else
-      %{
-        "stage" => key,
-        "required_for_functional_parity" => tolerance.required?,
-        "byte_match" => byte_match,
-        "shape_match" => false,
-        "elixir" => tensor_summary(elixir_tensor, prefix_count: 8),
-        "python" => tensor_summary(python_tensor, prefix_count: 8),
-        "max_abs_error" => nil,
-        "mean_abs_error" => nil,
-        "mismatched_element_count" => nil,
-        "tolerance" => %{
-          "max_abs_error" => tolerance.max_abs,
-          "mean_abs_error" => tolerance.mean_abs
-        },
-        "functional_passed" => false
-      }
-    end
-  end
-
-  defp stage_value_check(key, elixir_tensor, python_tensor, tolerance, byte_match) do
-    elixir_f32 = Nx.as_type(elixir_tensor, :f32)
-    python_f32 = Nx.as_type(python_tensor, :f32)
-    abs_diff = Nx.abs(Nx.subtract(elixir_f32, python_f32))
-    max_abs = scalar(Nx.reduce_max(abs_diff))
-    mean_abs = scalar(Nx.divide(Nx.sum(abs_diff), Nx.tensor(Nx.size(abs_diff), type: :f32)))
-    mismatch_count = scalar(Nx.sum(Nx.as_type(Nx.not_equal(elixir_tensor, python_tensor), :s64)))
-
-    %{
-      "stage" => key,
-      "required_for_functional_parity" => tolerance.required?,
-      "byte_match" => byte_match,
-      "shape_match" => true,
-      "elixir" => tensor_summary(elixir_tensor, prefix_count: 8),
-      "python" => tensor_summary(python_tensor, prefix_count: 8),
-      "max_abs_error" => max_abs,
-      "mean_abs_error" => mean_abs,
-      "mismatched_element_count" => mismatch_count,
-      "tolerance" => %{
-        "max_abs_error" => tolerance.max_abs,
-        "mean_abs_error" => tolerance.mean_abs
-      },
-      "functional_passed" => max_abs <= tolerance.max_abs and mean_abs <= tolerance.mean_abs
-    }
-  end
-
-  defp missing_stage_check(key) do
-    tolerance = stage_tolerance(key)
-
-    %{
-      "stage" => key,
-      "required_for_functional_parity" => tolerance.required?,
-      "byte_match" => false,
-      "shape_match" => false,
-      "missing_python_stage" => true,
-      "functional_passed" => not tolerance.required?
-    }
-  end
-
-  defp stage_checks_passed?([]), do: nil
-
-  defp stage_checks_passed?(checks) do
-    Enum.all?(checks, fn check ->
-      not check["required_for_functional_parity"] or check["functional_passed"]
-    end)
-  end
-
-  defp stage_tolerance("stage.source_f32"), do: %{required?: true, max_abs: 0.0, mean_abs: 0.0}
-  defp stage_tolerance("stage.offsets_f32"), do: %{required?: true, max_abs: 0.0, mean_abs: 0.0}
-
-  defp stage_tolerance("stage.scaled_s"),
-    do: %{required?: true, max_abs: 1.0e-6, mean_abs: 1.0e-8}
-
-  defp stage_tolerance("stage.normalization"),
-    do: %{required?: true, max_abs: 1.0e-6, mean_abs: 1.0e-6}
-
-  defp stage_tolerance("stage.u_scaled"),
-    do: %{required?: true, max_abs: 1.0e-6, mean_abs: 1.0e-8}
-
-  defp stage_tolerance("stage.zero_source_f32"),
-    do: %{required?: true, max_abs: 1.0e-3, mean_abs: 1.0e-5}
-
-  defp stage_tolerance("stage.matmul_pre_norm"),
-    do: %{required?: true, max_abs: 1.0e-3, mean_abs: 1.0e-5}
-
-  defp stage_tolerance("stage.adapted_source_f32"),
-    do: %{required?: true, max_abs: 1.0e-3, mean_abs: 1.0e-5}
-
-  defp stage_tolerance("stage.final_f32"),
-    do: %{required?: true, max_abs: 1.0e-3, mean_abs: 1.0e-5}
-
-  defp stage_tolerance("stage.final_bf16"),
-    do: %{required?: false, max_abs: 1.0e-3, mean_abs: 1.0e-5}
-
-  defp stage_tolerance(_key), do: %{required?: false, max_abs: 1.0e-3, mean_abs: 1.0e-5}
 
   defp singular_summary(s_host, offsets_host) do
     offsets_host = Nx.as_type(offsets_host, Nx.type(s_host)) |> host_snapshot()
