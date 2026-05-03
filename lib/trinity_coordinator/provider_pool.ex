@@ -156,7 +156,7 @@ defmodule TrinityCoordinator.ProviderPool do
   defp lookup_pool(pool_name) when is_atom(pool_name) or is_binary(pool_name) do
     pools = config()
 
-    normalized_name = normalize_pool_name(pool_name)
+    normalized_name = normalize_pool_name(pool_name, pools)
 
     case pools[normalized_name] do
       nil -> {:error, {:unknown_pool, pool_name}}
@@ -173,15 +173,33 @@ defmodule TrinityCoordinator.ProviderPool do
     pools
     |> Enum.reduce(%{}, fn
       {name, spec}, acc when is_atom(name) or is_binary(name) ->
-        Map.put(acc, normalize_pool_name(name), spec)
+        Map.put(acc, normalize_pool_name(name, acc), spec)
 
       _, acc ->
         acc
     end)
   end
 
-  defp normalize_pool_name(name) when is_binary(name), do: String.to_atom(name)
-  defp normalize_pool_name(name), do: name
+  defp normalize_pool_name(name, pools) when is_binary(name) do
+    normalized = String.trim(name)
+
+    cond do
+      is_map(pools) and Map.has_key?(pools, normalized) ->
+        normalized
+
+      is_map(pools) ->
+        Enum.find(Map.keys(pools), normalized, fn
+          atom when is_atom(atom) -> Atom.to_string(atom) == normalized
+          string when is_binary(string) -> string == normalized
+          _ -> false
+        end)
+
+      true ->
+        normalized
+    end
+  end
+
+  defp normalize_pool_name(name, _pools), do: name
 end
 
 defmodule TrinityCoordinator.ProviderPool.Spec do
@@ -224,6 +242,55 @@ defmodule TrinityCoordinator.ProviderPool.Spec do
     :agent_session_manager,
     :mock
   ]
+  @default_agent_names %{
+    0 => :agent_0,
+    1 => :agent_1,
+    2 => :agent_2,
+    3 => :agent_3,
+    4 => :agent_4,
+    5 => :agent_5,
+    6 => :agent_6
+  }
+  @known_name_atoms [
+    :agent_0,
+    :agent_1,
+    :agent_2,
+    :agent_3,
+    :agent_4,
+    :agent_5,
+    :agent_6,
+    :fast_openai,
+    :default_reasoning,
+    :compact_reasoning,
+    :backup_openai,
+    :fast_openai_2,
+    :reasoner_2,
+    :fallback_openai,
+    :mock_0,
+    :mock_1,
+    :mock_2,
+    :mock_3,
+    :mock_4,
+    :mock_5,
+    :mock_6,
+    :gemini_cli_asm_0,
+    :gemini_cli_asm_1,
+    :gemini_cli_asm_2,
+    :gemini_cli_asm_3,
+    :gemini_cli_asm_4,
+    :gemini_cli_asm_5,
+    :gemini_cli_asm_6
+  ]
+  @provider_by_name %{
+    "openai" => :openai,
+    "openai_compatible" => :openai_compatible,
+    "gemini" => :gemini,
+    "gemini_ex" => :gemini_ex,
+    "anthropic" => :anthropic,
+    "asm" => :asm,
+    "agent_session_manager" => :agent_session_manager,
+    "mock" => :mock
+  }
 
   def normalize(raw) when is_list(raw) do
     with {:ok, specs} <- normalize_list(raw, []) do
@@ -334,7 +401,7 @@ defmodule TrinityCoordinator.ProviderPool.Spec do
     normalized = Map.new(entry)
 
     with {:ok, id} <- coerce_id(normalized[:id]),
-         {:ok, provider} <- coerce_atom(normalized[:provider]),
+         {:ok, provider} <- coerce_provider(normalized[:provider]),
          {:ok, model} <- coerce_non_empty_binary(normalized[:model], :model),
          {:ok, timeout_ms} <- coalesce_positive_integer(normalized[:timeout_ms], 30_000),
          {:ok, max_tokens} <- coalesce_positive_integer(normalized[:max_tokens], 200),
@@ -384,9 +451,24 @@ defmodule TrinityCoordinator.ProviderPool.Spec do
     end
   end
 
-  defp normalize_name(nil, id), do: {:ok, String.to_atom("agent_#{id}")}
+  defp normalize_name(nil, id) do
+    case Map.fetch(@default_agent_names, id) do
+      {:ok, name} -> {:ok, name}
+      :error -> {:error, "unknown default provider name for id #{inspect(id)}"}
+    end
+  end
+
   defp normalize_name(name, _id) when is_atom(name), do: {:ok, name}
-  defp normalize_name(name, _id) when is_binary(name), do: {:ok, String.to_atom(name)}
+
+  defp normalize_name(name, _id) when is_binary(name) do
+    normalized = name |> String.trim() |> String.downcase() |> String.replace("-", "_")
+
+    case Enum.find(@known_name_atoms, &(Atom.to_string(&1) == normalized)) do
+      nil -> {:error, "unknown provider name #{inspect(name)}"}
+      atom -> {:ok, atom}
+    end
+  end
+
   defp normalize_name(name, _id), do: {:error, "invalid provider name #{inspect(name)}"}
 
   defp ensure_known_provider(provider) when provider in @known_providers, do: {:ok, provider}
@@ -403,9 +485,18 @@ defmodule TrinityCoordinator.ProviderPool.Spec do
 
   defp coerce_id(other), do: {:error, "invalid id #{inspect(other)}"}
 
-  defp coerce_atom(value) when is_atom(value), do: {:ok, value}
-  defp coerce_atom(value) when is_binary(value), do: {:ok, String.to_atom(value)}
-  defp coerce_atom(other), do: {:error, "invalid atom value #{inspect(other)}"}
+  defp coerce_provider(value) when is_atom(value), do: {:ok, value}
+
+  defp coerce_provider(value) when is_binary(value) do
+    normalized = value |> String.trim() |> String.downcase() |> String.replace("-", "_")
+
+    case Map.fetch(@provider_by_name, normalized) do
+      {:ok, provider} -> {:ok, provider}
+      :error -> {:error, "unknown provider #{inspect(value)}"}
+    end
+  end
+
+  defp coerce_provider(other), do: {:error, "invalid provider value #{inspect(other)}"}
 
   defp coerce_non_empty_binary(value, field) when is_binary(value) do
     if String.trim(value) == "" do

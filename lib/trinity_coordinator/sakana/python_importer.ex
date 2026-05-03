@@ -743,18 +743,34 @@ defmodule TrinityCoordinator.Sakana.PythonImporter do
   defp deep_get(value, []), do: value
 
   defp deep_get(map, [key | rest]) when is_map(map) do
-    value = Map.get(map, key) || Map.get(map, to_string(key)) || Map.get(map, atom_key(key))
+    value =
+      case resolve_map_key(map, key) do
+        nil -> nil
+        resolved_key -> Map.get(map, resolved_key)
+      end
+
     deep_get(value, rest)
   end
 
   defp deep_get(_value, _path), do: nil
 
-  defp atom_key(key) when is_atom(key), do: key
+  defp resolve_map_key(map, key) do
+    cond do
+      Map.has_key?(map, key) ->
+        key
 
-  defp atom_key(key) when is_binary(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError -> nil
+      Map.has_key?(map, to_string(key)) ->
+        to_string(key)
+
+      is_binary(key) ->
+        Enum.find(Map.keys(map), fn
+          atom when is_atom(atom) -> Atom.to_string(atom) == key
+          _ -> false
+        end)
+
+      true ->
+        nil
+    end
   end
 
   defp emit(%{progress: progress}, event) when is_function(progress, 1), do: progress.(event)

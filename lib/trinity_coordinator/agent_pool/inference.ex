@@ -121,7 +121,7 @@ defmodule TrinityCoordinator.AgentPool.Inference do
 
   defp default_model_spec(provider, model) when is_binary(model) do
     case provider do
-      :gemini -> "google:#{model}"
+      :gemini -> "google:" <> model
       :gemini_ex -> nil
       provider when provider in @asm_providers -> nil
       _provider -> nil

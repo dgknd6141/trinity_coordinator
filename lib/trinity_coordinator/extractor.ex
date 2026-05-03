@@ -256,7 +256,7 @@ defmodule TrinityCoordinator.Extractor do
         tensor
 
       _ ->
-        case existing_atom_key(key) do
+        case matching_atom_key(inputs, key) do
           nil -> nil
           atom -> tensor_or_nil(Map.get(inputs, atom))
         end
@@ -265,10 +265,11 @@ defmodule TrinityCoordinator.Extractor do
 
   defp input_tensor(_inputs, _key), do: nil
 
-  defp existing_atom_key(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError -> nil
+  defp matching_atom_key(inputs, key) do
+    Enum.find(Map.keys(inputs), fn
+      atom when is_atom(atom) -> Atom.to_string(atom) == key
+      _ -> false
+    end)
   end
 
   defp tensor_or_nil(%Nx.Tensor{} = tensor), do: tensor

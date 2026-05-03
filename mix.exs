@@ -117,14 +117,35 @@ defmodule TrinityCoordinator.MixProject do
         "LICENSE"
       ],
       groups_for_extras: [
-        Project: ~r/^(README|CHANGELOG|LICENSE)/,
-        Examples: ~r/examples\/README\.md/,
-        "Start Here": ~r/guides\/(onboarding|current_direction|system_architecture)\.md/,
-        "Parity Guides":
-          ~r/guides\/(python_parity_reconstruction|stage_checks_and_tolerances|artifacts_and_export|svd_generation_runbook)\.md/,
-        "Service Buildout":
-          ~r/guides\/(service_buildout|provider_service_hardening|operations_qc|troubleshooting)\.md/,
-        "Reference Notes": ~r/docs\//
+        Project: ["README.md", "CHANGELOG.md", "LICENSE"],
+        Examples: ["examples/README.md"],
+        "Start Here": [
+          "guides/onboarding.md",
+          "guides/current_direction.md",
+          "guides/system_architecture.md"
+        ],
+        "Parity Guides": [
+          "guides/python_parity_reconstruction.md",
+          "guides/stage_checks_and_tolerances.md",
+          "guides/artifacts_and_export.md",
+          "guides/svd_generation_runbook.md"
+        ],
+        "Service Buildout": [
+          "guides/service_buildout.md",
+          "guides/provider_service_hardening.md",
+          "guides/operations_qc.md",
+          "guides/troubleshooting.md"
+        ],
+        "Reference Notes": [
+          "docs/sakana_svd_byte_match_rigor_plan.md",
+          "docs/sakana_svd_parity_debug_checklist.md",
+          "docs/elixir_svd_decomposition.md",
+          "docs/production_qwen_slm_profile.md",
+          "docs/coordination_head_variants.md",
+          "docs/trace_persistence.md",
+          "docs/configurable_provider_pools.md",
+          "docs/provider_smoke_tests.md"
+        ]
       ],
       groups_for_modules: [
         Core: [

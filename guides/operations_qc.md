@@ -77,7 +77,7 @@ This is the required parity gate.
 When validating the full selected tensor set, generate Python with
 `--all-selected-tensors --svd-weights path/to/svd_weights.pt`, then add
 `--all-selected-tensors` to the Elixir command above. Add
-`--selected-source-regex 'model\.layers\.26\.'` for the current bounded replay
+`--selected-source-filter 'model.layers.26.'` for the current bounded replay
 gate. That mode reads
 `trinity_svf_all_selected_stage_debug.safetensors` and fails strict stage
 tolerances if any required stage fails for any replayed selected tensor.

@@ -95,7 +95,9 @@ defmodule Mix.Tasks.Trinity.Sakana.LargeTensorChunks do
     |> Enum.filter(&(get_in(&1, ["stage_debug", "functional_parity_passed"]) == false))
     |> Enum.each(fn chunk ->
       Mix.shell().info(
-        "failed_chunk #{chunk["source_name"]} rows=#{chunk["row_start"]}:#{chunk["row_end"]} " <>
+        "failed_chunk #{chunk["source_name"]} rows=#{chunk["row_start"]}" <>
+          ":" <>
+          "#{chunk["row_end"]} " <>
           "required_failed=#{get_in(chunk, ["stage_debug", "required_failed_count"])}"
       )
     end)
@@ -104,14 +106,16 @@ defmodule Mix.Tasks.Trinity.Sakana.LargeTensorChunks do
   defp print_progress(%{event: :chunk_started} = event) do
     Mix.shell().info(
       "chunk #{event.source_name} #{event.chunk_index + 1}/#{event.total_chunks} " <>
-        "rows=#{event.row_start}:#{event.row_end} started"
+        "rows=#{event.row_start}" <> ":" <> "#{event.row_end} started"
     )
   end
 
   defp print_progress(%{event: :chunk_finished} = event) do
     Mix.shell().info(
       "chunk #{event.source_name} #{event.chunk_index + 1}/#{event.total_chunks} " <>
-        "rows=#{event.row_start}:#{event.row_end} " <>
+        "rows=#{event.row_start}" <>
+        ":" <>
+        "#{event.row_end} " <>
         "functional_parity=#{inspect(event.functional_parity_passed)} " <>
         "required_failed=#{event.required_failed_count}"
     )

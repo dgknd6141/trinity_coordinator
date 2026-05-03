@@ -415,7 +415,7 @@ XLA_TARGET=cuda12 mix trinity.sakana.parity_sample \
   --preferred-layout-only \
   --source-from-python-stage \
   --all-selected-tensors \
-  --selected-source-regex 'model\.layers\.26\.' \
+  --selected-source-filter 'model.layers.26.' \
   --components-dir tmp/sakana_parity/python_components \
   --python-report tmp/sakana_parity/python_sample_trace.json \
   --stage-dir tmp/sakana_parity/elixir_stages \

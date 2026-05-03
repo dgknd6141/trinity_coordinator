@@ -144,10 +144,10 @@ defmodule TrinityCoordinator.Sakana.Head do
   defp raise_missing_map_key!(key), do: raise(ArgumentError, "missing map key #{inspect(key)}")
 
   defp existing_atom_key(container, key) do
-    atom = String.to_existing_atom(key)
-    if Map.has_key?(container, atom), do: atom
-  rescue
-    ArgumentError -> nil
+    Enum.find(Map.keys(container), fn
+      atom when is_atom(atom) -> Atom.to_string(atom) == key
+      _ -> false
+    end)
   end
 
   defp maybe_cast(tensor, target_type, true), do: Nx.as_type(tensor, target_type)

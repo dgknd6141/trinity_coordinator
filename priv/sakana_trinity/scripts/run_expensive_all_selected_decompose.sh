@@ -47,7 +47,7 @@ XLA_TARGET="$XLA_TARGET" mix trinity.sakana.parity_sample \
   --preferred-layout-only \
   --source-from-python-stage \
   --all-selected-tensors \
-  --selected-source-regex 'model\.layers\.26\.' \
+  --selected-source-filter 'model.layers.26.' \
   --components-dir "$OUT_ROOT/python_components" \
   --python-report "$OUT_ROOT/python_sample_trace.json" \
   --stage-dir "$OUT_ROOT/elixir_stages" \

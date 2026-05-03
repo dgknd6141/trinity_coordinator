@@ -173,8 +173,8 @@ Important options:
 - `--all-selected-tensors`: replay every selected tensor from the Python
   component metadata and compare against the all-selected Python stage bundle.
   Use it only with an all-selected Python report.
-- `--selected-source-regex`: restrict semantic replay to source or Elixir names
-  matching a regex. Use `model\.layers\.26\.` for the current bounded
+- `--selected-source-filter`: restrict semantic replay to source or Elixir
+  names containing a fixed string. Use `model.layers.26.` for the current bounded
   service-critical all-selected gate; embedding and LM-head need a chunked
   large-tensor gate before they are enforced in Elixir.
 
@@ -202,7 +202,7 @@ XLA_TARGET=cuda12 mix trinity.sakana.parity_sample \
   --preferred-layout-only \
   --source-from-python-stage \
   --all-selected-tensors \
-  --selected-source-regex 'model\.layers\.26\.' \
+  --selected-source-filter 'model.layers.26.' \
   --components-dir tmp/sakana_parity/python_components \
   --python-report tmp/sakana_parity/python_sample_trace.json \
   --stage-dir tmp/sakana_parity/elixir_stages \

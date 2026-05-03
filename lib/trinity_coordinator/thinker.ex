@@ -48,13 +48,20 @@ defmodule TrinityCoordinator.Thinker do
   def parse(other), do: parse(to_string(other))
 
   defp extract_tag(text, tag) do
-    pattern = Regex.compile!("<#{tag}>(.*?)</#{tag}>", "s")
+    open = "<" <> tag <> ">"
+    close = "</" <> tag <> ">"
 
-    case Regex.run(pattern, text, capture: :all_but_first) do
-      [value] ->
-        value
-        |> String.trim()
-        |> blank_to_nil()
+    case String.split(text, open, parts: 2) do
+      [_before, rest] ->
+        case String.split(rest, close, parts: 2) do
+          [value, _after] ->
+            value
+            |> String.trim()
+            |> blank_to_nil()
+
+          _ ->
+            nil
+        end
 
       _ ->
         nil

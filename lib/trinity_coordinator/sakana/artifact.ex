@@ -730,21 +730,15 @@ defmodule TrinityCoordinator.Sakana.Artifact do
   end
 
   defp existing_atom_map_key(container, key) do
-    case to_existing_atom(key) do
-      nil -> nil
-      atom_key -> if Map.has_key?(container, atom_key), do: atom_key
-    end
+    Enum.find(Map.keys(container), fn
+      atom_key when is_atom(atom_key) -> Atom.to_string(atom_key) == key
+      _ -> false
+    end)
   end
 
   defp string_map_key(container, key) do
     string_key = Atom.to_string(key)
     if Map.has_key?(container, string_key), do: string_key
-  end
-
-  defp to_existing_atom(key) when is_binary(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError -> nil
   end
 
   defp normalize_segments(nil, path), do: String.split(path, ".")

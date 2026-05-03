@@ -39,14 +39,14 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySampleTest do
       ParitySample.parse_args!([
         "--semantic-only",
         "--all-selected-tensors",
-        "--selected-source-regex",
-        "model\\.layers\\.26\\.",
+        "--selected-source-filter",
+        "model.layers.26.",
         "--source-from-python-stage"
       ])
 
     refute opts[:native?]
     assert opts[:all_selected_tensors]
-    assert opts[:selected_source_regex] == "model\\.layers\\.26\\."
+    assert opts[:selected_source_filter] == "model.layers.26."
     assert opts[:source_from_python_stage]
   end
 
@@ -172,7 +172,7 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySampleTest do
         semantic_layout_diagnostics?: false,
         source_from_python_stage?: true,
         all_selected_tensors?: true,
-        selected_source_regex: "synthetic_b",
+        selected_source_filter: "synthetic_b",
         require_cuda: false
       )
 

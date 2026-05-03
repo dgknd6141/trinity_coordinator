@@ -190,7 +190,7 @@ defmodule TrinityCoordinator.Sakana.PythonImporterTest do
     assert Nx.shape(head_tensor) == {4, 2}
   end
 
-  test "default import rejects wrong router head shape" do
+  test "default loader rejects wrong router head shape" do
     source_dir = unique_tmp_dir("python_source_bad_head")
     out_dir = unique_tmp_dir("python_out_bad_head")
     File.rm_rf!(out_dir)

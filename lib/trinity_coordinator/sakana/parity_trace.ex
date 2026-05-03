@@ -59,7 +59,7 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
         semantic_layout_diagnostics?: true,
         source_from_python_stage?: false,
         all_selected_tensors?: false,
-        selected_source_regex: nil,
+        selected_source_filter: nil,
         require_cuda: true
       )
 
@@ -120,7 +120,7 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
       semantic_device?: opts[:semantic_device?],
       semantic_layout_diagnostics?: opts[:semantic_layout_diagnostics?],
       all_selected_tensors?: opts[:all_selected_tensors?],
-      selected_source_regex: opts[:selected_source_regex],
+      selected_source_filter: opts[:selected_source_filter],
       source_from_python_stage?: opts[:source_from_python_stage?],
       reference: reference,
       sample: sample
@@ -169,7 +169,7 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
         "native_svd_enabled" => opts[:native?],
         "source_from_python_stage" => source_context.from_python_stage?,
         "all_selected_tensors" => opts[:all_selected_tensors?],
-        "selected_source_regex" => opts[:selected_source_regex],
+        "selected_source_filter" => opts[:selected_source_filter],
         "python_all_selected_stage_loaded" => not is_nil(python_all_selected_stage_tensors)
       },
       "router_vector" => tensor_summary(vector_host, prefix_count: 8),
@@ -374,13 +374,13 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
       raise ArgumentError, "all-selected semantic replay requires selected_tensors metadata"
     end
 
-    filter_semantic_entries!(entries, context.selected_source_regex)
+    filter_semantic_entries!(entries, context.selected_source_filter)
   end
 
   defp semantic_entries(sample, context) do
     case selected_entries_from_metadata(context.component_metadata) do
       [] ->
-        filter_semantic_entries!([sample], context.selected_source_regex)
+        filter_semantic_entries!([sample], context.selected_source_filter)
 
       entries ->
         sample_source = sample["source_name"]
@@ -391,7 +391,7 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
               sample
           ]
 
-        filter_semantic_entries!(entries, context.selected_source_regex)
+        filter_semantic_entries!(entries, context.selected_source_filter)
     end
   end
 
@@ -399,18 +399,18 @@ defmodule TrinityCoordinator.Sakana.ParityTrace do
   defp filter_semantic_entries!(entries, ""), do: entries
 
   defp filter_semantic_entries!(entries, pattern) when is_binary(pattern) do
-    regex = Regex.compile!(pattern)
+    needle = String.trim(pattern)
 
     filtered =
       Enum.filter(entries, fn entry ->
         source_name = Map.get(entry, "source_name", "")
         elixir_name = Map.get(entry, "elixir_name", "")
-        Regex.match?(regex, source_name) or Regex.match?(regex, elixir_name)
+        String.contains?(source_name, needle) or String.contains?(elixir_name, needle)
       end)
 
     if filtered == [] do
       raise ArgumentError,
-            "selected_source_regex #{inspect(pattern)} matched no semantic entries"
+            "selected_source_filter #{inspect(pattern)} matched no semantic entries"
     end
 
     filtered

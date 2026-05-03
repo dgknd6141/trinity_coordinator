@@ -97,7 +97,7 @@ every selected tensor; canonical target-orientation validation happens later
 when `mix trinity.sakana.import_python` materializes the runtime artifact layout
 and checks the Bumblebee parameter names, shapes, and checkpoint hashes.
 The current Elixir replay should be bounded with
-`--selected-source-regex 'model\.layers\.26\.'`; embedding and LM-head stage
+`--selected-source-filter 'model.layers.26.'`; embedding and LM-head stage
 checks need a chunked large-tensor gate before they are practical as a
 monolithic EXLA replay.
 

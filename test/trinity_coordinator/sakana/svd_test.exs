@@ -1015,14 +1015,10 @@ defmodule TrinityCoordinator.Sakana.SVDTest do
   end
 
   defp existing_atom_key(container, segment) do
-    atom = existing_atom(segment)
-    if atom && Map.has_key?(container, atom), do: atom
-  end
-
-  defp existing_atom(key) when is_binary(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError -> nil
+    Enum.find(Map.keys(container), fn
+      atom when is_atom(atom) -> Atom.to_string(atom) == segment
+      _ -> false
+    end)
   end
 
   defp load_export_log_events(out_dir) do

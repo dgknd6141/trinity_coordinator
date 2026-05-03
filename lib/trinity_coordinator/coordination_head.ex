@@ -207,17 +207,25 @@ defmodule TrinityCoordinator.CoordinationHead do
   defp normalize_selection_mode!(:sample, _key), do: :sample
 
   defp normalize_selection_mode!(value, key) when is_binary(value) do
-    value
-    |> String.trim()
-    |> String.downcase()
-    |> String.replace("-", "_")
-    |> String.to_atom()
-    |> normalize_selection_mode!(key)
+    case selection_mode_from_string(value) do
+      nil -> normalize_selection_mode!(value, key)
+      mode -> mode
+    end
   end
 
   defp normalize_selection_mode!(value, key) do
     raise ArgumentError,
           "#{key} must be :argmax, :softmax, :softmax_argmax, or :sample, got #{inspect(value)}"
+  end
+
+  defp selection_mode_from_string(value) do
+    case value |> String.trim() |> String.downcase() |> String.replace("-", "_") do
+      "argmax" -> :argmax
+      "softmax" -> :softmax
+      "softmax_argmax" -> :softmax
+      "sample" -> :sample
+      _ -> nil
+    end
   end
 
   defp select_from_logits(logits, :argmax, opts, _split) do

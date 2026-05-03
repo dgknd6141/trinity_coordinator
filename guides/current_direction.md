@@ -57,7 +57,7 @@ path.
 1. Extend sample parity to all selected tensors:
    - Python emits source-oriented stage/debug data for every selected tensor.
    - Elixir currently replays the bounded `model.layers.26.*` slice from Python
-     components with `--all-selected-tensors --selected-source-regex`.
+     components with `--all-selected-tensors --selected-source-filter`.
    - The comparator fails if any required stage for any replayed selected tensor
      fails.
    - Embedding and LM-head replay remain a chunked large-tensor follow-up before

@@ -30,8 +30,8 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySample do
   tensor for semantic-only diagnostics. Add `--preferred-layout-only` to skip
   known-wrong V-layout diagnostics, or `--device-semantic-only` to avoid the
   large CPU matrix multiply while still producing stage checks through EXLA.
-  Add `--selected-source-regex` with `--all-selected-tensors` to replay a
-  bounded source-name slice such as `model\\.layers\\.26\\.`.
+  Add `--selected-source-filter` with `--all-selected-tensors` to replay a
+  bounded source-name slice such as `model.layers.26.`.
   """
 
   use Mix.Task
@@ -65,7 +65,7 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySample do
         python_report_path: Keyword.get(opts, :python_report),
         stage_dir: Keyword.get(opts, :stage_dir),
         native?: Keyword.fetch!(opts, :native?),
-        selected_source_regex: Keyword.get(opts, :selected_source_regex),
+        selected_source_filter: Keyword.get(opts, :selected_source_filter),
         semantic_host?: not Keyword.get(opts, :device_semantic_only, false),
         semantic_device?:
           not Keyword.get(opts, :host_semantic_only, false) or
@@ -101,7 +101,7 @@ defmodule Mix.Tasks.Trinity.Sakana.ParitySample do
           preferred_layout_only: :boolean,
           source_from_python_stage: :boolean,
           all_selected_tensors: :boolean,
-          selected_source_regex: :string,
+          selected_source_filter: :string,
           skip_native_svd: :boolean
         ]
       )
