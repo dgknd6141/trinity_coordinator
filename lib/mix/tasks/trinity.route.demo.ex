@@ -50,6 +50,15 @@ defmodule Mix.Tasks.Trinity.Route.Demo do
         strict: [
           allow_live: :boolean,
           artifact_dir: :string,
+          governed_api_key: :string,
+          governed_authority_ref: :string,
+          governed_base_url: :string,
+          governed_credential_ref: :string,
+          governed_model: :string,
+          governed_provider: :string,
+          governed_provider_pool_ref: :string,
+          governed_runtime_ref: :string,
+          governed_workflow_ref: :string,
           max_turns: :integer,
           message: :string,
           mock: :boolean,
@@ -65,20 +74,29 @@ defmodule Mix.Tasks.Trinity.Route.Demo do
     unless errors == [], do: Mix.raise("Invalid options: #{inspect(errors)}")
 
     mock? = Keyword.get(opts, :mock, false)
+    governed_authority = governed_authority(opts)
 
     %{
       allow_live?: Keyword.get(opts, :allow_live, false),
       artifact_dir: Keyword.get(opts, :artifact_dir, Artifact.default_output_dir()),
+      governed_authority: governed_authority,
       max_turns: Keyword.get(opts, :max_turns, 5),
       message: Keyword.get(opts, :message, @default_message),
       mock?: mock?,
       profile: Keyword.get(opts, :profile, "qwen_sakana_adapted"),
-      provider_pool: Keyword.get(opts, :provider_pool, if(mock?, do: "mock", else: "default")),
+      provider_pool:
+        if(governed_authority,
+          do: nil,
+          else: Keyword.get(opts, :provider_pool, if(mock?, do: "mock", else: "default"))
+        ),
       run_id: Keyword.get(opts, :run_id, "route_demo"),
       trace_content: parse_trace_content(Keyword.get(opts, :trace_content, "hash")),
       trace_path: Keyword.get(opts, :trace_out, @default_trace_path)
     }
   end
+
+  defp validate_live_gate!(%{governed_authority: authority} = opts) when not is_nil(authority),
+    do: opts
 
   defp validate_live_gate!(%{profile: "qwen_sakana_adapted", mock?: true} = opts), do: opts
 
@@ -135,8 +153,7 @@ defmodule Mix.Tasks.Trinity.Route.Demo do
       num_agents: coordinator.num_agents,
       num_roles: coordinator.num_roles,
       slm_context: {coordinator.model_info, coordinator.tokenizer},
-      provider_pool: opts.provider_pool,
-      agent_pool_opts: agent_pool_opts(),
+      agent_pool_opts: agent_pool_opts(opts),
       trace: [
         enabled: true,
         sink: {:jsonl, opts.trace_path},
@@ -144,15 +161,29 @@ defmodule Mix.Tasks.Trinity.Route.Demo do
         content: opts.trace_content
       ]
     ]
+    |> maybe_put_provider_pool(opts)
+    |> maybe_put_governed_authority(opts)
     |> maybe_put_mock_agent(opts)
   end
+
+  defp maybe_put_provider_pool(opts, %{provider_pool: nil}), do: opts
+
+  defp maybe_put_provider_pool(opts, %{provider_pool: provider_pool}),
+    do: Keyword.put(opts, :provider_pool, provider_pool)
+
+  defp maybe_put_governed_authority(opts, %{governed_authority: nil}), do: opts
+
+  defp maybe_put_governed_authority(opts, %{governed_authority: authority}),
+    do: Keyword.put(opts, :governed_authority, authority)
 
   defp maybe_put_mock_agent(opts, %{mock?: true}),
     do: Keyword.put(opts, :mock_agent_fn, &mock_agent/3)
 
   defp maybe_put_mock_agent(opts, _), do: opts
 
-  defp agent_pool_opts do
+  defp agent_pool_opts(%{governed_authority: authority}) when not is_nil(authority), do: []
+
+  defp agent_pool_opts(_opts) do
     [
       openai_api_key:
         first_env(["OPENAI_API_KEY", "TRINITY_OPENAI_API_KEY", "OPENAI_API_KEY_ENV"]),
@@ -218,6 +249,40 @@ defmodule Mix.Tasks.Trinity.Route.Demo do
         _ -> nil
       end
     end)
+  end
+
+  defp governed_authority(opts) do
+    case Keyword.get(opts, :governed_authority_ref) do
+      nil ->
+        nil
+
+      authority_ref ->
+        provider = Keyword.get(opts, :governed_provider, "openai")
+        model = Keyword.get(opts, :governed_model, "gpt-4o-mini")
+        base_url = Keyword.get(opts, :governed_base_url)
+        api_key = Keyword.get(opts, :governed_api_key)
+
+        [
+          authority_ref: authority_ref,
+          workflow_ref: Keyword.get(opts, :governed_workflow_ref),
+          runtime_ref: Keyword.get(opts, :governed_runtime_ref),
+          provider_pool_ref: Keyword.get(opts, :governed_provider_pool_ref),
+          credential_ref: Keyword.get(opts, :governed_credential_ref),
+          api_key: api_key,
+          base_url: base_url,
+          redaction_values: [api_key, base_url],
+          provider_pool: [
+            [
+              id: 0,
+              provider: provider,
+              model: model,
+              base_url: base_url,
+              max_tokens: 128,
+              temperature: 0.0
+            ]
+          ]
+        ]
+    end
   end
 
   defp parse_trace_content("full"), do: :full

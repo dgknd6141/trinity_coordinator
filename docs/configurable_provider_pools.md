@@ -8,6 +8,12 @@ OpenAI-compatible specs. Production use needs named pools, provider-specific
 configuration, validation, credentials from runtime config, and clear separation
 between provider metadata and secrets.
 
+Governed orchestration does not use application provider-pool config as
+authority. It materializes the provider pool, credential ref, runtime ref, and
+workflow ref from a governed authority packet, rejects direct credential and
+provider-pool options beside that packet, and passes only bounded provider
+specs into `AgentPool`.
+
 ## Implementation Discipline
 
 Use TDD/RGR for every provider-pool behavior: red validation test, minimal green

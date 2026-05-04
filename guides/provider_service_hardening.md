@@ -43,7 +43,10 @@ Use red-green-refactor and commit/push only after the listed quality gates pass.
      transport code for new provider integrations.
    - Record provider name, model, endpoint, timeout, max tokens, and
      temperature in traces.
-   - Keep credentials in environment variables only.
+   - Keep standalone credentials in environment variables only.
+   - For governed runs, accept credentials only through explicit authority
+     packets and reject direct provider-pool or credential options beside that
+     packet.
 
 2. Supervised runtime process
    - Start one coordinator process that loads Qwen and the router head once.
@@ -88,6 +91,8 @@ Use red-green-refactor and commit/push only after the listed quality gates pass.
 - Mock orchestration example writes a complete JSONL trace and terminates.
 - Live route demo fails closed without explicit live enablement.
 - Live route demo succeeds only with configured credentials and budget.
+- Governed route demo succeeds only with explicit authority refs and redacts
+  authority-selected materialized values from JSONL traces.
 - No default test or example performs live provider calls.
 
 ## Quality Gates

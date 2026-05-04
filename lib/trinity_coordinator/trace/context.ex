@@ -5,7 +5,7 @@ defmodule TrinityCoordinator.Trace.Context do
   alias TrinityCoordinator.Trace.JSONL
   alias TrinityCoordinator.Trace.Redactor
 
-  defstruct [:run_id, :content, :sink, :enabled, :schema_version]
+  defstruct [:run_id, :content, :sink, :enabled, :schema_version, redaction_values: []]
 
   @default_run_id "run_" <> Integer.to_string(System.unique_integer([:positive]))
 
@@ -16,6 +16,7 @@ defmodule TrinityCoordinator.Trace.Context do
     enabled = Keyword.get(opts, :enabled, false)
     run_id = Keyword.get(opts, :run_id, @default_run_id)
     content = Keyword.get(opts, :content, :hash)
+    redaction_values = normalize_redaction_values(Keyword.get(opts, :redaction_values, []))
 
     context =
       %__MODULE__{
@@ -23,7 +24,8 @@ defmodule TrinityCoordinator.Trace.Context do
         content: content,
         enabled: enabled,
         sink: nil,
-        schema_version: 1
+        schema_version: 1,
+        redaction_values: redaction_values
       }
 
     case build_sink(enabled, opts) do
@@ -44,7 +46,10 @@ defmodule TrinityCoordinator.Trace.Context do
       |> Map.put_new(:schema_version, Event.schema_version())
 
     with :ok <- Event.validate(enriched) do
-      context.sink.__struct__.write_event(context.sink, redact_event(context.content, enriched))
+      context.sink.__struct__.write_event(
+        context.sink,
+        redact_event(context.content, context.redaction_values, enriched)
+      )
     end
   end
 
@@ -65,9 +70,30 @@ defmodule TrinityCoordinator.Trace.Context do
     end
   end
 
-  defp redact_event(:full, event), do: event
+  defp redact_event(:full, values, event), do: Redactor.redact_values(event, values)
 
-  defp redact_event(:hash, event), do: Redactor.redact(event, :redacted)
+  defp redact_event(:hash, values, event) do
+    event
+    |> Redactor.redact(:redacted)
+    |> Redactor.redact_values(values)
+  end
 
-  defp redact_event(_unknown, event), do: Redactor.redact(event, :redacted)
+  defp redact_event(_unknown, values, event) do
+    event
+    |> Redactor.redact(:redacted)
+    |> Redactor.redact_values(values)
+  end
+
+  defp normalize_redaction_values(values) when is_list(values) do
+    values
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp normalize_redaction_values(value) when is_binary(value),
+    do: normalize_redaction_values([value])
+
+  defp normalize_redaction_values(_), do: []
 end

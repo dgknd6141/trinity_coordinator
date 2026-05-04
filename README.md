@@ -525,6 +525,27 @@ TRINITY_ENABLE_PROVIDER_DEMO=1 OPENAI_API_KEY=... XLA_TARGET=cuda12 \
     --trace-out tmp/trinity_route_demo_openai.jsonl
 ```
 
+Governed runs do not read normal provider env as authority. They must provide
+an explicit authority packet or the matching governed route-demo flags:
+
+```bash
+XLA_TARGET=cuda12 mix trinity.route.demo \
+  --profile qwen_sakana_adapted \
+  --governed-authority-ref auth-trinity-1 \
+  --governed-workflow-ref workflow-trinity-1 \
+  --governed-runtime-ref runtime-trinity-1 \
+  --governed-provider-pool-ref pool-trinity-1 \
+  --governed-credential-ref cred-trinity-1 \
+  --governed-api-key "$TRINITY_DISPOSABLE_PROVIDER_KEY" \
+  --governed-provider openai \
+  --governed-model gpt-4o-mini \
+  --trace-out tmp/trinity_route_demo_governed.jsonl
+```
+
+The governed path rejects direct provider-pool and credential options beside
+the authority packet. Trace output records provider/model labels, opaque refs,
+hashes, and fixed redaction markers, not materialized secret values.
+
 The built-in `gemini_cli_asm` pool routes all seven TRINITY agents through
 `Inference.Adapters.ASM`, ASM's SDK lane, and `gemini_cli_sdk` using
 `gemini-3.1-flash-lite-preview`. The Gemini CLI must be installed or reachable

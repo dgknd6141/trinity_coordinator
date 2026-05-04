@@ -11,6 +11,7 @@ defmodule TrinityCoordinator.Orchestrator do
     AgentPool,
     CoordinationHead,
     Extractor,
+    GovernedAuthority,
     RoleInjector,
     Runtime,
     StateManager,
@@ -46,6 +47,22 @@ defmodule TrinityCoordinator.Orchestrator do
   def run_loop(pid, model, params, opts \\ [])
 
   def run_loop(pid, model, params, opts) when is_list(opts) do
+    with {:ok, opts} <- GovernedAuthority.materialize_orchestrator_opts(opts) do
+      do_run_loop(pid, model, params, opts)
+    end
+  end
+
+  def run_loop(pid, model, params, max_turns) when is_integer(max_turns),
+    do: run_loop(pid, model, params, max_turns: max_turns)
+
+  def run_loop(pid, model, params, max_turns, slm_context) when is_integer(max_turns),
+    do:
+      run_loop(pid, model, params,
+        max_turns: max_turns,
+        slm_context: slm_context
+      )
+
+  defp do_run_loop(pid, model, params, opts) do
     max_turns = Keyword.get(opts, :max_turns, @default_max_turns)
     slm_context = Keyword.get(opts, :slm_context)
     stop_token = Keyword.get(opts, :stop_token, "ACCEPT")
@@ -103,16 +120,6 @@ defmodule TrinityCoordinator.Orchestrator do
         error
     end
   end
-
-  def run_loop(pid, model, params, max_turns) when is_integer(max_turns),
-    do: run_loop(pid, model, params, max_turns: max_turns)
-
-  def run_loop(pid, model, params, max_turns, slm_context) when is_integer(max_turns),
-    do:
-      run_loop(pid, model, params,
-        max_turns: max_turns,
-        slm_context: slm_context
-      )
 
   defp build_runtime_metadata(slm_context) do
     model_info =

@@ -15,6 +15,14 @@ defmodule TrinityCoordinator.Trace.Redactor do
   def redact(value, :redacted), do: do_redact(value)
   def redact(value, _), do: value
 
+  @doc "Redacts exact materialized secret values recursively."
+  def redact_values(value, values) when is_list(values) do
+    values = Enum.filter(values, &(is_binary(&1) and &1 != ""))
+    do_redact_values(value, values)
+  end
+
+  def redact_values(value, _values), do: value
+
   defp do_redact(value) when is_map(value) do
     Map.new(value, fn {k, v} ->
       key = to_key(k)
@@ -47,4 +55,20 @@ defmodule TrinityCoordinator.Trace.Redactor do
   defp to_key(key) when is_atom(key), do: key |> Atom.to_string() |> String.downcase()
   defp to_key(key) when is_binary(key), do: String.downcase(key)
   defp to_key(key), do: inspect(key)
+
+  defp do_redact_values(value, []), do: value
+
+  defp do_redact_values(value, values) when is_map(value) do
+    Map.new(value, fn {k, v} -> {k, do_redact_values(v, values)} end)
+  end
+
+  defp do_redact_values(value, values) when is_list(value) do
+    Enum.map(value, &do_redact_values(&1, values))
+  end
+
+  defp do_redact_values(value, values) when is_binary(value) do
+    Enum.reduce(values, value, fn secret, acc -> String.replace(acc, secret, "<redacted>") end)
+  end
+
+  defp do_redact_values(value, _values), do: value
 end
