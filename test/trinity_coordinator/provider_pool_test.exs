@@ -66,6 +66,24 @@ defmodule TrinityCoordinator.ProviderPoolTest do
     assert spec.base_url == nil
   end
 
+  test "rejects unknown provider ids before dispatch" do
+    assert {:error, message} =
+             Spec.normalize([
+               [id: 0, provider: "external-runtime-provider", model: "x"]
+             ])
+
+    assert String.contains?(message, "unknown provider")
+    assert String.contains?(message, "external-runtime-provider")
+
+    assert {:error, atom_message} =
+             Spec.normalize([
+               [id: 0, provider: :external_runtime_provider, model: "x"]
+             ])
+
+    assert String.contains?(atom_message, "unknown provider")
+    assert String.contains?(atom_message, "external_runtime_provider")
+  end
+
   test "fetches configured pool by name and computes size" do
     assert is_integer(ProviderPool.size(:default))
     assert ProviderPool.size(:default) > 0

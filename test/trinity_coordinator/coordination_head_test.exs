@@ -99,6 +99,20 @@ defmodule TrinityCoordinator.CoordinationHeadTest do
     end
   end
 
+  test "head variants accept only owner-known string aliases" do
+    metadata = CoordinationHead.variant_metadata(10, 4, 3, head: "block-diagonal")
+
+    assert metadata.head == :block_diagonal
+
+    error =
+      assert_raise ArgumentError, fn ->
+        CoordinationHead.build_model(10, 4, 3, head: "external-runtime-head")
+      end
+
+    assert String.contains?(Exception.message(error), "invalid head variant")
+    assert String.contains?(Exception.message(error), "external-runtime-head")
+  end
+
   test "builds block-diagonal models with metadata and route bounds" do
     input_dim = 7
     num_agents = 3

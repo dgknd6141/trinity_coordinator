@@ -17,4 +17,18 @@ defmodule TrinityCoordinator.StateManagerTest do
     assert Enum.at(messages, 0) == %{role: "user", content: "Hello"}
     assert Enum.at(messages, 1) == %{role: "assistant", content: "Hi there"}
   end
+
+  test "rejects unknown coordinator message roles" do
+    trap_exit = Process.flag(:trap_exit, true)
+
+    try do
+      assert {:error, {%ArgumentError{} = error, _stack}} =
+               StateManager.start_link([%{role: "external-runtime-role", content: "Hello"}])
+
+      assert String.contains?(Exception.message(error), "unsupported message role")
+      assert String.contains?(Exception.message(error), "external-runtime-role")
+    after
+      Process.flag(:trap_exit, trap_exit)
+    end
+  end
 end

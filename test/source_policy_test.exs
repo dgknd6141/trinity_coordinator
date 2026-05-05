@@ -31,9 +31,27 @@ defmodule TrinityCoordinator.SourcePolicyTest do
         forbidden_tokens()
         |> Enum.filter(&String.contains?(body, &1))
         |> Enum.map(&{path, &1})
+        |> Kernel.++(dynamic_quoted_atom_hits(path, body))
       end)
 
     assert hits == []
+  end
+
+  test "dynamic quoted atom scanner catches prefixed interpolation" do
+    dynamic =
+      ":" <>
+        "\"" <>
+        "prefix_" <>
+        "#" <>
+        "{" <>
+        "value" <>
+        "}" <>
+        "\""
+
+    static = ":" <> "\"" <> "Elixir.Bumblebee.Text.Gpt2" <> "\""
+
+    assert dynamic_quoted_atom_interpolation?(String.to_charlist(dynamic))
+    refute dynamic_quoted_atom_interpolation?(String.to_charlist(static))
   end
 
   defp tracked_text_files do
@@ -67,6 +85,7 @@ defmodule TrinityCoordinator.SourcePolicyTest do
       "list_to_" <> "atom",
       "list_to_" <> "existing_atom",
       ":" <> "#" <> "{",
+      Enum.join(["Module", ".concat"]),
       "Re" <> "gex",
       "re" <> "gex",
       "~" <> "r",
@@ -86,4 +105,27 @@ defmodule TrinityCoordinator.SourcePolicyTest do
       "import " <> "re"
     ]
   end
+
+  defp dynamic_quoted_atom_hits(path, body) do
+    if dynamic_quoted_atom_interpolation?(String.to_charlist(body)) do
+      [{path, "dynamic quoted atom interpolation"}]
+    else
+      []
+    end
+  end
+
+  defp dynamic_quoted_atom_interpolation?([?:, ?" | rest]) do
+    quoted_atom_interpolates?(rest) or dynamic_quoted_atom_interpolation?(rest)
+  end
+
+  defp dynamic_quoted_atom_interpolation?([_char | rest]),
+    do: dynamic_quoted_atom_interpolation?(rest)
+
+  defp dynamic_quoted_atom_interpolation?([]), do: false
+
+  defp quoted_atom_interpolates?([?" | _rest]), do: false
+  defp quoted_atom_interpolates?([?#, ?{ | _rest]), do: true
+  defp quoted_atom_interpolates?([?\\, _escaped | rest]), do: quoted_atom_interpolates?(rest)
+  defp quoted_atom_interpolates?([_char | rest]), do: quoted_atom_interpolates?(rest)
+  defp quoted_atom_interpolates?([]), do: false
 end

@@ -6,7 +6,18 @@ defmodule TrinityCoordinator.CoordinationHead do
   `:block_diagonal` and `:sparse` for ablation work.
   """
 
-  @known_head_variants [:linear, :block_diagonal, :sparse]
+  @head_variant_by_name %{
+    "linear" => :linear,
+    "block_diagonal" => :block_diagonal,
+    "sparse" => :sparse
+  }
+  @known_head_variants Map.values(@head_variant_by_name)
+  @selection_mode_by_name %{
+    "argmax" => :argmax,
+    "softmax" => :softmax,
+    "softmax_argmax" => :softmax,
+    "sample" => :sample
+  }
 
   @doc """
   Builds the Axon model structure.
@@ -201,15 +212,19 @@ defmodule TrinityCoordinator.CoordinationHead do
     }
   end
 
-  defp normalize_selection_mode!(:argmax, _key), do: :argmax
-  defp normalize_selection_mode!(:softmax, _key), do: :softmax
+  defp normalize_selection_mode!(mode, _key) when mode in [:argmax, :softmax, :sample],
+    do: mode
+
   defp normalize_selection_mode!(:softmax_argmax, _key), do: :softmax
-  defp normalize_selection_mode!(:sample, _key), do: :sample
 
   defp normalize_selection_mode!(value, key) when is_binary(value) do
-    case selection_mode_from_string(value) do
-      nil -> normalize_selection_mode!(value, key)
-      mode -> mode
+    case Map.fetch(@selection_mode_by_name, normalized_option_name(value)) do
+      {:ok, mode} ->
+        mode
+
+      :error ->
+        raise ArgumentError,
+              "#{key} must be :argmax, :softmax, :softmax_argmax, or :sample, got #{inspect(value)}"
     end
   end
 
@@ -218,14 +233,154 @@ defmodule TrinityCoordinator.CoordinationHead do
           "#{key} must be :argmax, :softmax, :softmax_argmax, or :sample, got #{inspect(value)}"
   end
 
-  defp selection_mode_from_string(value) do
-    case value |> String.trim() |> String.downcase() |> String.replace("-", "_") do
-      "argmax" -> :argmax
-      "softmax" -> :softmax
-      "softmax_argmax" -> :softmax
-      "sample" -> :sample
-      _ -> nil
+  defp normalized_option_name(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+    |> String.replace("-", "_")
+  end
+
+  defp normalize_head_variant!(head) when head in @known_head_variants, do: head
+
+  defp normalize_head_variant!(head) when is_binary(head) do
+    case Map.fetch(@head_variant_by_name, normalized_option_name(head)) do
+      {:ok, variant} -> variant
+      :error -> raise_invalid_head_variant!(head)
     end
+  end
+
+  defp normalize_head_variant!(head), do: raise_invalid_head_variant!(head)
+
+  defp raise_invalid_head_variant!(head) do
+    raise ArgumentError,
+          "invalid head variant #{inspect(head)}"
+  end
+
+  defp parse_head_options!(opts) do
+    head =
+      opts
+      |> Keyword.get(:head, :linear)
+      |> normalize_head_variant!()
+
+    blocks = Keyword.get(opts, :blocks, 1)
+    sparse_k = Keyword.get(opts, :sparse_k, nil)
+
+    blocks = normalize_blocks(head, blocks)
+    sparse_k = normalize_sparse_k(sparse_k)
+
+    %{head: head, blocks: blocks, sparse_k: sparse_k}
+  end
+
+  defp normalize_blocks(:block_diagonal, value) do
+    if is_integer(value) and value > 0 do
+      value
+    else
+      raise ArgumentError, "blocks must be a positive integer"
+    end
+  end
+
+  defp normalize_blocks(_head, _value), do: 1
+
+  defp normalize_sparse_k(value) when is_integer(value) and value > 0, do: value
+  defp normalize_sparse_k(nil), do: nil
+
+  defp normalize_sparse_k(_value),
+    do: raise(ArgumentError, "sparse_k must be nil or positive integer")
+
+  defp validate_head_dimensions!(input_dim, output_dim, head_opts) do
+    if head_opts[:head] == :block_diagonal &&
+         (head_opts[:blocks] > input_dim || head_opts[:blocks] > output_dim) do
+      raise ArgumentError,
+            "block_diagonal requires blocks <= input_dim and <= num_agents+num_roles, got blocks=#{head_opts[:blocks]}, input_dim=#{input_dim}, output_dim=#{output_dim}"
+    end
+
+    if head_opts[:head] == :sparse do
+      sparse_k = head_opts[:sparse_k] || input_dim
+
+      unless is_integer(sparse_k) and sparse_k >= 1 and sparse_k <= input_dim do
+        raise ArgumentError,
+              "sparse_k must be between 1 and input_dim (#{input_dim}), got #{sparse_k}"
+      end
+    end
+
+    :ok
+  end
+
+  defp build_block_diagonal_model(input_dim, output_dim, blocks) do
+    input_node = Axon.input("hidden_state", shape: {nil, input_dim})
+    in_counts = partition_counts(input_dim, blocks)
+    out_counts = partition_counts(output_dim, blocks)
+
+    in_partitions = partitions_with_offsets(in_counts)
+    out_partitions = partitions_with_offsets(out_counts)
+
+    block_layers =
+      Enum.zip(in_partitions, out_partitions)
+      |> Enum.with_index()
+      |> Enum.map(fn {{{in_start, in_count}, {_, out_count}}, idx} ->
+        input_slice =
+          Axon.nx(input_node, fn x ->
+            Nx.slice(x, [0, in_start], [Nx.axis_size(x, 0), in_count])
+          end)
+
+        Axon.dense(input_slice, out_count, name: "routing_head_block_#{idx}")
+      end)
+
+    Axon.concatenate(block_layers, axis: 1, name: "routing_head")
+  end
+
+  defp build_sparse_model(input_dim, output_dim, sparse_k) do
+    input_node = Axon.input("hidden_state", shape: {nil, input_dim})
+    keep = effective_sparse_k(sparse_k, input_dim)
+
+    sliced_input =
+      Axon.nx(input_node, fn x ->
+        Nx.slice(x, [0, 0], [Nx.axis_size(x, 0), keep])
+      end)
+
+    Axon.dense(sliced_input, output_dim, name: "routing_head")
+  end
+
+  defp effective_sparse_k(nil, input_dim), do: input_dim
+  defp effective_sparse_k(sparse_k, _input_dim), do: sparse_k
+
+  defp partition_counts(total, parts) do
+    base = div(total, parts)
+    remainder = rem(total, parts)
+
+    0..(parts - 1)
+    |> Enum.map(fn index ->
+      if index < remainder do
+        base + 1
+      else
+        base
+      end
+    end)
+  end
+
+  defp partitions_with_offsets(counts) do
+    {_size, partitions} =
+      Enum.reduce(counts, {0, []}, fn count, {offset, acc} ->
+        {offset + count, [{offset, count} | acc]}
+      end)
+
+    Enum.reverse(partitions)
+  end
+
+  defp block_diagonal_param_count(in_counts, out_counts) do
+    Enum.zip(in_counts, out_counts)
+    |> Enum.reduce(0, fn {in_count, out_count}, acc ->
+      acc + in_count * out_count + out_count
+    end)
+  end
+
+  defp dense_param_count(input_dim, output_dim), do: input_dim * output_dim + output_dim
+
+  defp one_hot(index, size) do
+    Enum.map(0..(size - 1), fn
+      ^index -> 1.0
+      _ -> 0.0
+    end)
   end
 
   defp select_from_logits(logits, :argmax, opts, _split) do
@@ -423,132 +578,5 @@ defmodule TrinityCoordinator.CoordinationHead do
 
   defp validate_label_id!(id, limit, name) do
     raise ArgumentError, "#{name} must be an integer in 0..#{limit - 1}, got #{inspect(id)}"
-  end
-
-  defp parse_head_options!(opts) do
-    head = Keyword.get(opts, :head, :linear)
-    blocks = Keyword.get(opts, :blocks, 1)
-    sparse_k = Keyword.get(opts, :sparse_k, nil)
-
-    unless head in @known_head_variants do
-      raise ArgumentError, "invalid head variant #{inspect(head)}"
-    end
-
-    blocks = normalize_blocks(head, blocks)
-    sparse_k = normalize_sparse_k(sparse_k)
-
-    %{head: head, blocks: blocks, sparse_k: sparse_k}
-  end
-
-  defp normalize_blocks(:block_diagonal, value) do
-    if is_integer(value) and value > 0 do
-      value
-    else
-      raise ArgumentError, "blocks must be a positive integer"
-    end
-  end
-
-  defp normalize_blocks(_head, _value), do: 1
-
-  defp normalize_sparse_k(value) when is_integer(value) and value > 0, do: value
-  defp normalize_sparse_k(nil), do: nil
-
-  defp normalize_sparse_k(_value),
-    do: raise(ArgumentError, "sparse_k must be nil or positive integer")
-
-  defp validate_head_dimensions!(input_dim, output_dim, head_opts) do
-    if head_opts[:head] == :block_diagonal &&
-         (head_opts[:blocks] > input_dim || head_opts[:blocks] > output_dim) do
-      raise ArgumentError,
-            "block_diagonal requires blocks <= input_dim and <= num_agents+num_roles, got blocks=#{head_opts[:blocks]}, input_dim=#{input_dim}, output_dim=#{output_dim}"
-    end
-
-    if head_opts[:head] == :sparse do
-      sparse_k = head_opts[:sparse_k] || input_dim
-
-      unless is_integer(sparse_k) and sparse_k >= 1 and sparse_k <= input_dim do
-        raise ArgumentError,
-              "sparse_k must be between 1 and input_dim (#{input_dim}), got #{sparse_k}"
-      end
-    end
-
-    :ok
-  end
-
-  defp build_block_diagonal_model(input_dim, output_dim, blocks) do
-    input_node = Axon.input("hidden_state", shape: {nil, input_dim})
-    in_counts = partition_counts(input_dim, blocks)
-    out_counts = partition_counts(output_dim, blocks)
-
-    in_partitions = partitions_with_offsets(in_counts)
-    out_partitions = partitions_with_offsets(out_counts)
-
-    block_layers =
-      Enum.zip(in_partitions, out_partitions)
-      |> Enum.with_index()
-      |> Enum.map(fn {{{in_start, in_count}, {_, out_count}}, idx} ->
-        input_slice =
-          Axon.nx(input_node, fn x ->
-            Nx.slice(x, [0, in_start], [Nx.axis_size(x, 0), in_count])
-          end)
-
-        Axon.dense(input_slice, out_count, name: "routing_head_block_#{idx}")
-      end)
-
-    Axon.concatenate(block_layers, axis: 1, name: "routing_head")
-  end
-
-  defp build_sparse_model(input_dim, output_dim, sparse_k) do
-    input_node = Axon.input("hidden_state", shape: {nil, input_dim})
-    keep = effective_sparse_k(sparse_k, input_dim)
-
-    sliced_input =
-      Axon.nx(input_node, fn x ->
-        Nx.slice(x, [0, 0], [Nx.axis_size(x, 0), keep])
-      end)
-
-    Axon.dense(sliced_input, output_dim, name: "routing_head")
-  end
-
-  defp effective_sparse_k(nil, input_dim), do: input_dim
-  defp effective_sparse_k(sparse_k, _input_dim), do: sparse_k
-
-  defp partition_counts(total, parts) do
-    base = div(total, parts)
-    remainder = rem(total, parts)
-
-    0..(parts - 1)
-    |> Enum.map(fn index ->
-      if index < remainder do
-        base + 1
-      else
-        base
-      end
-    end)
-  end
-
-  defp partitions_with_offsets(counts) do
-    {_size, partitions} =
-      Enum.reduce(counts, {0, []}, fn count, {offset, acc} ->
-        {offset + count, [{offset, count} | acc]}
-      end)
-
-    Enum.reverse(partitions)
-  end
-
-  defp block_diagonal_param_count(in_counts, out_counts) do
-    Enum.zip(in_counts, out_counts)
-    |> Enum.reduce(0, fn {in_count, out_count}, acc ->
-      acc + in_count * out_count + out_count
-    end)
-  end
-
-  defp dense_param_count(input_dim, output_dim), do: input_dim * output_dim + output_dim
-
-  defp one_hot(index, size) do
-    Enum.map(0..(size - 1), fn
-      ^index -> 1.0
-      _ -> 0.0
-    end)
   end
 end

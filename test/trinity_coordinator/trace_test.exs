@@ -27,6 +27,14 @@ defmodule TrinityCoordinator.TraceTest do
     assert_raise ArgumentError, fn ->
       Event.new(:unsupported_event, "run_1", %{})
     end
+
+    assert {:error, :invalid_event_type} =
+             Event.validate(%{
+               schema_version: 1,
+               event: "run_started",
+               run_id: "run_string_event",
+               timestamp_ms: System.system_time(:millisecond)
+             })
   end
 
   test "trace hash is deterministic for equivalent messages" do

@@ -40,6 +40,33 @@ defmodule TrinityCoordinator.CoordinationHeadRouteOptionsTest do
     assert Nx.to_number(Nx.sum(route.role_probabilities)) > 0.999
   end
 
+  test "string selection modes are bounded to known route modes" do
+    model = CoordinationHead.build_model(4, 2, 3)
+    {init_fn, _} = Axon.build(model)
+    params = init_fn.(Nx.template({1, 4}, :f32), Axon.ModelState.empty())
+    input = Nx.tensor([[0.1, 0.2, 0.3, 0.4]], type: :f32)
+
+    route =
+      CoordinationHead.route(model, params, input, 2, 3,
+        agent_selection: "softmax-argmax",
+        role_selection: "softmax",
+        temperature: 1.0
+      )
+
+    assert route.agent_selection_mode == :softmax
+    assert route.role_selection_mode == :softmax
+
+    error =
+      assert_raise ArgumentError, fn ->
+        CoordinationHead.route(model, params, input, 2, 3,
+          agent_selection: "external-runtime-mode"
+        )
+      end
+
+    assert String.contains?(Exception.message(error), "agent_selection must be")
+    assert String.contains?(Exception.message(error), "external-runtime-mode")
+  end
+
   test "seeded sampling is deterministic for the same logits" do
     model = CoordinationHead.build_model(4, 2, 3)
     {init_fn, _} = Axon.build(model)
